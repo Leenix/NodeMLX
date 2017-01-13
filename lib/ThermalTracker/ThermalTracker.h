@@ -3,7 +3,6 @@
 #include "TrackedBlob.h"
 #include <SimpleTimer.h>
 #include <Arduino.h>
-#include <Wire.h>
 #include <stdarg.h>
 
 const int MINIMUM_TRAVEL_THRESHOLD = 4;
