@@ -297,7 +297,9 @@ int ThermalTracker::get_active_pixels(Pixel pixel_buffer[]){
             float average = pixel_averages[i][j];
             float variance = pixel_variance[i][j];
 
-            if (absolute(average - temp) > (variance * 3)) {
+            float temperature_difference = absolute(average - temp);
+
+            if (temperature_difference > (variance * 3) && temperature_difference > MINIMUM_TEMPERATURE_DIFFERENTIAL) {
                 pixel_buffer[num_active++].set(j, i, temp);
             }
         }

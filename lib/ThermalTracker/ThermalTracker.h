@@ -17,6 +17,7 @@ const int RUNNING_AVERAGE_SIZE = 80;
 const int REFRESH_RATE = 16;
 const int UNCHANGED_FRAME_DELAY = REFRESH_RATE * 2;
 const int NUM_DIRECTION_CATEGORIES = 5;
+const float MINIMUM_TEMPERATURE_DIFFERENTIAL = 0.5;
 
 enum directions {
     LEFT    = 0,
