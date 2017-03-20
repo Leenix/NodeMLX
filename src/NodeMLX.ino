@@ -1,15 +1,19 @@
 #include <Arduino.h>
-#include "i2c_t3.h"
-#include "MLX90621.h"
-#include "ThermalTracker.h"
-#include "SimpleTimer.h"
-#include "Logging.h"
-#include "SPI.h"
-#include "SD.h"
-#include "RTClib.h"
-#include "ArduinoJson.h"
-#include "ESP8266WiFi.h"
 #include <ESP8266HTTPClient.h>
+#include <ESP8266WebServer.h>
+#include <ESP8266mDNS.h>
+#include <RTClib.h>
+#include "ArduinoJson.h"
+#include "Button.h"
+#include "ESP8266WiFi.h"
+#include "Logging.h"
+#include "MLX90621.h"
+#include "PIR.h"
+#include "SD.h"
+#include "SPI.h"
+#include "SimpleTimer.h"
+#include "ThermalTracker.h"
+#include "i2c_t3.h"
 
 ////////////////////////////////////////////////////////////////////////////////
 // Constants
@@ -53,17 +57,27 @@ const long LIGHT_CHECK_INTERVAL = 2000;
 const int LIGHT_ON_THRESHOLD = 500;
 
 // WiFi
-const char* WIFI_SSID = "Handy";
-const char* WIFI_PASSWORD = "things11";
+const char* WIFI_SSID = "Turbo Beemo 2.4Ghz";
+const char* WIFI_PASSWORD = "tnetennba";
 const int WIFI_DEFAULT_TIMEOUT = 2000;
 const long WIFI_RECONNECT_INTERVAL = 10000;
 
-// HTTP
+// HTTP Uploading
 const char* SERVER_ADDRESS = "www.dweet.io";
-const int SERVER_PORT = 80;
+const int UPLOAD_SERVER_PORT = 80;
 const char GET_REQUEST[] = "GET /dweet/for/";
 const char GET_TAIL[] = " HTTP/1.1\r\n\r\n";
 const long TIMEOUT = 5000;  // TCP timeout in ms
+
+// Server
+const int SERVER_PORT = 80;
+const char RELOAD_SCRIPT[] =
+    "<script>\n$(document).ready(function(){setInterval(function(){cache_clear()},500);});function "
+    "cache_clear(){window.location.reload(true);}</script>";
+const float MAX_DISPLAY_TEMPERATURE = 50.0;
+const float MIN_DISPLAY_TEMPERATURE = 0.0;
+const int HOT_HUE = 0;
+const int COLD_HUE = 240;
 
 // RTC
 const long RTC_CHECK_DATE_INTERVAL = 60000;
@@ -75,28 +89,12 @@ const long SD_WRITE_DATA_INTERVAL = 5 * 60 * 1000;
 const long BUTTON_CHECK_INTERVAL = 200;
 const long BUTTON_UPLOAD_DATA_DELAY = 3000;
 const long BUTTON_RESET_COUNTERS_DELAY = 6000;
+const bool BUTTON_DEBOUNCE_ENABLED = true;
+const long BUTTON_DEBOUNCE_TIME = 50;
 
 // LED
 const long LED_ON_PERIOD = 50;
 const long LED_OFF_PERIOD = 50;
-
-////////////////////////////////////////////////////////////////////////////////
-// Data Structures
-////////////////////////////////////////////////////////////////////////////////
-struct PirSensor {
-    bool state;
-    long start_time;
-    long count;
-    long cooldown;
-    bool is_in_cooldown;
-    byte pin;
-};
-
-struct Button {
-    bool state;
-    long down_time;
-    byte pin;
-};
 
 ////////////////////////////////////////////////////////////////////////////////
 // Function Prototypes
@@ -108,10 +106,9 @@ void print_new_movements();
 void check_background();
 void print_frame();
 
-PirSensor init_motion_sensor(int pin, long cooldown);
 void start_pir();
-void warm_up_pir_sensors();
 void update_pir();
+void motion_event();
 
 void start_wifi();
 bool attempt_wifi_connection(long timeout = WIFI_DEFAULT_TIMEOUT);
@@ -132,7 +129,7 @@ void check_for_date_change();
 void reset_counters();
 
 void start_button();
-void check_button();
+void button_press_event(Button& b);
 
 void start_indicator();
 void flash();
@@ -141,6 +138,12 @@ void flash_check();
 void indicator_off();
 void indicator_on();
 
+void handle_root();
+void handle_live();
+void handle_not_found();
+String generate_colour_map(float[4][16]);
+String generate_temperature_table(float[4][16]);
+
 ////////////////////////////////////////////////////////////////////////////////
 // Variables
 ////////////////////////////////////////////////////////////////////////////////
@@ -148,8 +151,8 @@ void indicator_on();
 SimpleTimer timer;
 MLX90621 thermal_flow;
 ThermalTracker tracker(TRACKER_NUM_BACKGROUND_FRAMES, TRACKER_MINIMUM_DISTANCE, TRACKER_MINIMUM_BLOB_SIZE);
-PirSensor motion;
-Button button;
+PIR motion(PIR_PIN, MOTION_COOLDOWN_DEFAULT);
+Button button = Button(BUTTON_PIN, BUTTON_PULLUP, BUTTON_DEBOUNCE_ENABLED, BUTTON_DEBOUNCE_TIME);
 File data_file;
 
 // RTC
@@ -168,6 +171,10 @@ bool light_state;
 int led_flash_count;
 int max_led_flash_count;
 
+// Server
+MDNSResponder mdns;
+ESP8266WebServer server(SERVER_PORT);
+
 ////////////////////////////////////////////////////////////////////////////////
 // Main
 ////////////////////////////////////////////////////////////////////////////////
@@ -181,13 +188,16 @@ void setup() {
     Wire.begin(SDA, SCL);
     Log.Info("NodeMLX Starting...");
 
-    start_thermal_flow();
+    // start_thermal_flow();
     start_pir();
-    start_light_sensor();
-    start_rtc();
-    start_sd_card();
-    start_wifi();
-    start_button();
+    // start_light_sensor();
+    // start_rtc();
+    // start_sd_card();
+    start_indicator();
+    // start_wifi();
+    // start_button();
+
+    flash(5);
 }
 
 void loop() {
@@ -196,6 +206,8 @@ void loop() {
     * Everything is called off timer events
     */
     timer.run();
+    server.handleClient();
+    button.process();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -283,91 +295,27 @@ void print_frame() {
 ////////////////////////////////////////////////////////////////////////////////
 // PIR
 
-PirSensor init_motion_sensor(int pin, long cooldown) {
-    /**
-    * Initialise a new PIR motion sensor
-    */
-    PirSensor sensor;
-    sensor.cooldown = cooldown;
-    sensor.is_in_cooldown = false;
-    sensor.pin = pin;
-    sensor.state = false;
-    sensor.start_time = 0;
-    sensor.count = 0;
-
-    pinMode(sensor.pin, INPUT);
-
-    return sensor;
-}
-
 void start_pir() {
     /**
     * Start the PIR motion sensor for motion detections
     */
 
-    motion = init_motion_sensor(PIR_PIN, MOTION_COOLDOWN_DEFAULT);
-
-    // Stop everything until the PIR sensor has had a chance to settle
-    warm_up_pir_sensors();
+    motion.start();
+    motion.calibrate(MOTION_INITIALISATION_TIME);
+    motion.set_event_start_callback(motion_event);
 
     // Start up regular reads
     timer.setInterval(MOTION_CHECK_INTERVAL, update_pir);
     Log.Info(("Motion detection started."));
 
-    update_pir();
+    motion.update();
 }
 
-void warm_up_pir_sensors() {
-    /**
-    * Halt the system until the PIR sensors have had a chance to start.
-    * The downtime is goverened by the MOTION_INITIALISATION_TIME variable
-    * Default: 10 seconds
-    */
-    Log.Info(("Calibrating motion sensor - wait %d ms"), MOTION_INITIALISATION_TIME);
+void update_pir() { motion.update(); }
 
-    for (long i = 0; i < MOTION_INITIALISATION_TIME;
-         i += (MOTION_INITIALISATION_TIME / MOTION_INITIALISATION_INTERVALS)) {
-        Log.Debug(("Motion sensor calibration: %d ms remaining..."), (MOTION_INITIALISATION_TIME - i));
-        Serial.flush();
-        delay(MOTION_INITIALISATION_TIME / MOTION_INITIALISATION_INTERVALS);
-    }
-}
-
-void update_pir() {
-    /**
-    * Check the PIR sensor for detected movement
-    * The sensor will output HIGH when motion is detected.
-    * Detections will hold the detection status HIGH until the cool-down has
-    * lapsed (default: 2s)
-    */
-
-    // Check cooldown status
-    if (motion.is_in_cooldown) {
-        if (millis() - motion.start_time > motion.cooldown) {
-            motion.is_in_cooldown = false;
-        }
-    }
-
-    // Check for motion if not in cooldown
-    if (!motion.is_in_cooldown) {
-        if (digitalRead(motion.pin)) {
-            if (!motion.state) {
-                // If motion detected, increment the count (and do all the extra bits)
-                motion.state = true;
-                motion.start_time = millis();
-                motion.is_in_cooldown = true;
-                motion.count++;
-
-                Log.Debug("Motion sensor triggered. Count: %l", motion.count);
-            }
-
-            else {
-                if (motion.state) {
-                    motion.state = false;
-                }
-            }
-        }
-    }
+void motion_event() {
+    flash();
+    Log.Debug("Motion event @ %d \t: %d - %d ms", millis(), motion.num_detections);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -422,7 +370,7 @@ void upload_data() {
     char packet_buffer[400];
 
     // Attempt connection to data server
-    if (client.connect(SERVER_ADDRESS, SERVER_PORT)) {
+    if (client.connect(SERVER_ADDRESS, UPLOAD_SERVER_PORT)) {
         // Send data if connection is available
         assemble_data_packet(packet_buffer);
         client.print(packet_buffer);
@@ -472,7 +420,7 @@ void assemble_data_packet(char* packet_buffer) {
     sprintf(entry, "&lights_on=%T", light_state);
     add_to_array(packet_buffer, entry);
 
-    sprintf(entry, "&pir_count=%l", motion.count);
+    sprintf(entry, "&pir_count=%l", motion.num_detections);
     add_to_array(packet_buffer, entry);
 
     add_to_array(packet_buffer, const_cast<char*>(GET_TAIL));
@@ -519,7 +467,7 @@ void append_data_to_file() {
     */
     char filename[50];
     char temp[30];
-    StaticJsonBuffer<400> json_buffer;
+    StaticJsonBuffer<500> json_buffer;
 
     // Open up the current datefile - Changes by date
     get_date(temp);
@@ -539,7 +487,7 @@ void append_data_to_file() {
         entry["therm_up"] = movements[UP];
         entry["therm_down"] = movements[DOWN];
         entry["therm_nodir"] = movements[NO_DIRECTION];
-        entry["pir_count"] = motion.count;
+        entry["pir_count"] = motion.num_detections;
         entry["light_status"] = light_state;
 
         entry.printTo(data_file);
@@ -626,7 +574,7 @@ void reset_counters() {
     */
     tracker.reset_movements();
     tracker.reset_background();
-    motion.count = 0;
+    motion.num_detections = 0;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -636,52 +584,12 @@ void start_button() {
     /**
     * Start monitoring the state of the button
     */
-    pinMode(BUTTON_PIN, INPUT);
-
-    button.state = LOW;
-    button.down_time = 0;
-
-    timer.setInterval(BUTTON_CHECK_INTERVAL, check_button);
+    button.pressHandler(button_press_event);
 }
 
-void check_button() {
-    /**
-    * Keep track of how long the button is depressed for and perform actions depending on how long.
-    * If the button is held down for more than 3 seconds, a packet is immediately uploaded if WiFi is connected on
-    * release
-    * If the button is held down for more than 6 seconds, all motion counters are reset
-    */
-    button.state = digitalRead(BUTTON_PIN);
-
-    // Button down - Count how long it's down for
-    if (button.state == HIGH) {
-        button.down_time += BUTTON_CHECK_INTERVAL;
-
-        if (button.down_time > BUTTON_RESET_COUNTERS_DELAY &&
-            button.down_time < BUTTON_RESET_COUNTERS_DELAY + BUTTON_CHECK_INTERVAL) {
-            flash(3);
-        }
-
-        else if (button.down_time > BUTTON_UPLOAD_DATA_DELAY &&
-                 button.down_time < BUTTON_UPLOAD_DATA_DELAY + BUTTON_CHECK_INTERVAL) {
-            flash(6);
-        }
-
-        // Button up - See if anything needs to happen
-    } else {
-        // Reset counters after... (default: 6 seconds)
-        if (button.down_time > BUTTON_RESET_COUNTERS_DELAY) {
-            reset_counters();
-
-            // Prompt data upload after... (default: 3 seconds)
-        } else if (button.down_time > BUTTON_UPLOAD_DATA_DELAY) {
-            upload_data();
-        }
-
-        button.down_time = 0;
-    }
+void button_press_event(Button& b) {
+    // TODO - Button events
 }
-
 ////////////////////////////////////////////////////////////////////////////////
 // LED
 
@@ -739,4 +647,155 @@ void indicator_on() {
     * Turn the LED indicator on
     */
     digitalWrite(LED_PIN, HIGH);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Server
+
+void start_server() {
+    /**
+    * Start the web server
+    */
+
+    if (mdns.begin(DEVICE_NAME, WiFi.localIP())) {
+        Log.Info("MDNS responder started");
+    }
+
+    server.on("/", handle_root);
+    server.on("/live", handle_live);
+    server.onNotFound(handle_not_found);
+
+    server.begin();
+    Log.Info("HTTP server started: %s", WiFi.localIP().toString().c_str());
+}
+
+void handle_root() {
+    /**
+    * Generate the HTML for the basic web page.
+    * The root page just displays basic information at this stage
+    * TODO - Add a config menu to the web server to change tracking variables on the fly
+    */
+
+    String header = "<html><head><title> NodeMLX Info</title><meta http-equiv=\"refresh\" content=\"5\"/></head><body>";
+    String footer = "</body></html>";
+    char temp[100];
+
+    String body = "<table style=\"width:50%\">";
+
+    get_datetime(temp);
+    body += "<tr><th>Last update</th><td>";
+    body += temp;
+    body += "</td></tr>";
+    body += "<tr><th>Thermal left</th><tr>";
+    body += tracker.movements[LEFT];
+    body += "</td></tr>";
+    body += "<tr><th>Thermal right</th><tr>";
+    body += tracker.movements[RIGHT];
+    body += "</td></tr>";
+    body += "<tr><th>Thermal up</th><tr>";
+    body += tracker.movements[UP];
+    body += "</td></tr>";
+    body += "<tr><th>Thermal down</th><tr>";
+    body += tracker.movements[DOWN];
+    body += "</td></tr>";
+    body += "<tr><th>Thermal none</th><tr>";
+    body += tracker.movements[NO_DIRECTION];
+    body += "</td></tr>";
+    body += "<tr><th>PIR Count</th><tr>";
+    body += motion.num_detections;
+    body += "</td></tr>";
+    body += "<tr><th>Light state</th><tr>";
+    body += light_state + "</td></tr>";
+    dtostrf(thermal_flow.get_ambient_temperature(), 0, 2, temp);
+    body += "<tr><th>Ambient Temperature</th><tr>";
+    body += temp;
+    body += " °C</td></tr>";
+    body += "<hr><a href=\"live\">Live feed</a>";
+
+    server.send(200, "text/html", header + body + footer);
+}
+
+void handle_live() {
+    /**
+    * Generate the html for the live page.
+    * The live page contains a false-colour temperature map of the sensor output
+    */
+    String page = RELOAD_SCRIPT;
+    page += generate_colour_map(tracker.frame);
+    page += "<html><head><title> NodeMLX Live Feed</title></head><body>";
+    page += generate_temperature_table(tracker.frame);
+    page += "<hr><a href=\"\\\">Back</a></body></html>";
+
+    server.send(200, "text/html", page);
+}
+
+int calculate_hue(float temperature) {
+    /**
+    * Calculate the hue of the temperature according to the colour map
+    * Hue bounds are set by COLD_HUE and HOT_HUE
+    * @param temperature Temperature to map to a hue
+    * @return Hue of the input temperature relative to the set bounds
+    */
+    int temp = constrain(temperature * 5, MIN_DISPLAY_TEMPERATURE * 5, MAX_DISPLAY_TEMPERATURE * 5);
+    int hue = map(temp, MIN_DISPLAY_TEMPERATURE * 5, MAX_DISPLAY_TEMPERATURE * 5, COLD_HUE, HOT_HUE);
+    return hue;
+}
+
+String generate_colour_map(float temperatures[4][16]) {
+    String css = "<style type=\"text/css\">\n.thermal{color: 0xFFFFFF}\n";
+
+    for (int y = 0; y < 4; y++) {
+        for (int x = 0; x < 16; x++) {
+            char row[50];
+            int hue = calculate_hue(temperatures[y][x]);
+            sprintf(row, ".r%dc%d{background-color: hsl(%d,100%,50%)}\n", y, x, hue);
+            css += row;
+        }
+    }
+    css += "</style>\n";
+    return css;
+}
+
+String generate_temperature_table(float temperature[4][16]) {
+    /**
+    * Generate the html for displaying the recorded temperatures
+    * Colour mapping is handled in generate_colour_map
+    * @param temperature The temperature frame recorded by the sensor
+    * @return The HTML script for displaying the table
+    */
+    String table = "<table class=thermal>\n";
+
+    for (int row = 0; row < 4; row++) {
+        table += "<td>\n";
+
+        for (int column = 0; column < 16; column++) {
+            char cell[50];
+            char temp[8];
+            dtostrf(temperature[row][column], 0, 2, temp);
+            sprintf(cell, "<td class=r%dc%d> %s </td>\n", row, column, temp);
+            table += cell;
+        }
+        table += "</td>\n";
+    }
+
+    table += "</table>\n";
+    return table;
+}
+
+void handle_not_found() {
+    /**
+    * Display the 404 page for weird site requests
+    */
+    String message = "File Not Found\n\n";
+    message += "URI: ";
+    message += server.uri();
+    message += "\nMethod: ";
+    message += (server.method() == HTTP_GET) ? "GET" : "POST";
+    message += "\nArguments: ";
+    message += server.args();
+    message += "\n";
+    for (uint8_t i = 0; i < server.args(); i++) {
+        message += " " + server.argName(i) + ": " + server.arg(i) + "\n";
+    }
+    server.send(404, "text/plain", message);
 }
