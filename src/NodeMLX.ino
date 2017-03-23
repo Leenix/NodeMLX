@@ -20,7 +20,7 @@
 ////////////////////////////////////////////////////////////////////////////////
 // Versioning
 const char* DEVICE_NAME = "NodeMLX";
-const char* VERSION = "1.1";
+const char* VERSION = "1.2";
 
 // Pins
 const byte BUTTON_PIN = D0;
@@ -188,8 +188,8 @@ void setup() {
     Wire.begin(SDA, SCL);
     Log.Info("NodeMLX Starting...");
 
-    // start_thermal_flow();
-    start_pir();
+    start_thermal_flow();
+    //start_pir();
     // start_light_sensor();
     // start_rtc();
     // start_sd_card();
@@ -240,6 +240,8 @@ void process_new_frame() {
     long process_time = millis() - start_time;
 
     Log.Debug("Blobs in frame: %d\tprocess time %l ms", tracker.get_num_last_blobs(), process_time);
+
+    print_frame();
 }
 
 void print_new_movements() {
@@ -590,6 +592,7 @@ void start_button() {
 void button_press_event(Button& b) {
     // TODO - Button events
 }
+
 ////////////////////////////////////////////////////////////////////////////////
 // LED
 
@@ -742,6 +745,12 @@ int calculate_hue(float temperature) {
 }
 
 String generate_colour_map(float temperatures[4][16]) {
+    /**
+    * Generate the CSS for displaying the table colours for the thermal image
+    * Table generation is handled in generate_temperature_table
+    * @param temperature The temperature frame recorded by the sensor
+    * @return The CSS script for displaying the table colours
+    */
     String css = "<style type=\"text/css\">\n.thermal{color: 0xFFFFFF}\n";
 
     for (int y = 0; y < 4; y++) {
