@@ -31,7 +31,7 @@ const byte LIGHT_SENS_PIN = A0;
 
 // Serial
 const long SERIAL_BAUD = 115200;
-const int LOGGER_LEVEL = LOG_LEVEL_VERBOSE;
+const int LOGGER_LEVEL = LOG_LEVEL_INFOS;
 const char PACKET_START = '#';
 const char PACKET_END = '$';
 
@@ -42,7 +42,7 @@ const long BACKGROUND_CHECK_INTERVAL = 200;
 const long PRINT_FRAME_INTERVAL = 1000;
 
 // Thermal flow tracker
-const int TRACKER_NUM_BACKGROUND_FRAMES = 100;
+const int TRACKER_NUM_BACKGROUND_FRAMES = 200;
 const int TRACKER_MINIMUM_DISTANCE = 150;
 const int TRACKER_MINIMUM_BLOB_SIZE = 5;
 
@@ -57,8 +57,8 @@ const long LIGHT_CHECK_INTERVAL = 2000;
 const int LIGHT_ON_THRESHOLD = 500;
 
 // WiFi
-const char* WIFI_SSID = "Turbo Beemo 2.4Ghz";
-const char* WIFI_PASSWORD = "tnetennba";
+const char* WIFI_SSID = "Handy";
+const char* WIFI_PASSWORD = "things11";
 const int WIFI_DEFAULT_TIMEOUT = 2000;
 const long WIFI_RECONNECT_INTERVAL = 10000;
 
@@ -71,11 +71,8 @@ const long TIMEOUT = 5000;  // TCP timeout in ms
 
 // Server
 const int SERVER_PORT = 80;
-const char RELOAD_SCRIPT[] =
-    "<script>\n$(document).ready(function(){setInterval(function(){cache_clear()},500);});function "
-    "cache_clear(){window.location.reload(true);}</script>";
-const float MAX_DISPLAY_TEMPERATURE = 50.0;
-const float MIN_DISPLAY_TEMPERATURE = 0.0;
+const float DEFAULT_MAX_DISPLAY_TEMPERATURE = 50.0;
+const float DEFAULT_MIN_DISPLAY_TEMPERATURE = 0.0;
 const int HOT_HUE = 0;
 const int COLD_HUE = 240;
 
@@ -174,6 +171,8 @@ int max_led_flash_count;
 // Server
 MDNSResponder mdns;
 ESP8266WebServer server(SERVER_PORT);
+float min_display_temperature = DEFAULT_MIN_DISPLAY_TEMPERATURE;
+float max_display_temperature = DEFAULT_MAX_DISPLAY_TEMPERATURE;
 
 ////////////////////////////////////////////////////////////////////////////////
 // Main
@@ -185,16 +184,17 @@ void setup() {
     * Start all the sensors and do all the things
     */
     Log.Init(LOGGER_LEVEL, SERIAL_BAUD);
-    Wire.begin(SDA, SCL);
+    Wire.begin(D2, D3);
     Log.Info("NodeMLX Starting...");
 
     start_thermal_flow();
-    //start_pir();
+    // start_pir();
     // start_light_sensor();
     // start_rtc();
     // start_sd_card();
     start_indicator();
-    // start_wifi();
+    start_wifi();
+    start_server();
     // start_button();
 
     flash(5);
@@ -206,8 +206,9 @@ void loop() {
     * Everything is called off timer events
     */
     timer.run();
+    mdns.update();
     server.handleClient();
-    button.process();
+    // button.process();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -219,7 +220,7 @@ void start_thermal_flow() {
     /**
     * Start the thermal flow sensor
     */
-    thermal_flow.initialise(REFRESH_RATE * 2);
+    thermal_flow.initialise(REFRESH_RATE);
 
     timer.setInterval(THERMAL_FRAME_INTERVAL, process_new_frame);
     timer.setInterval(THERMAL_CHECK_MOVEMENT_INTERVAL, print_new_movements);
@@ -235,7 +236,7 @@ void process_new_frame() {
     */
 
     long start_time = millis();
-    thermal_flow.get_temperatures(frame);
+    thermal_flow.get_temperatures(frame, true);
     tracker.process_frame(frame);
     long process_time = millis() - start_time;
 
@@ -334,11 +335,10 @@ void start_wifi() {
 
     if (connected) {
         Log.Info("WiFi Connected!\nIP address: %s", WiFi.localIP().toString().c_str());
-        timer.setInterval(5000, upload_data);
+        // timer.setInterval(5000, upload_data);
 
     } else {
         timer.setTimeout(WIFI_RECONNECT_INTERVAL, start_wifi);
-        upload_data();
     }
 }
 
@@ -404,25 +404,25 @@ void assemble_data_packet(char* packet_buffer) {
 
     sprintf(packet_buffer, "%s%s?", GET_REQUEST, DEVICE_NAME);
 
-    sprintf(entry, "&therm_left=%l", movements[LEFT]);
+    sprintf(entry, "&therm_left=%d", movements[LEFT]);
     add_to_array(packet_buffer, entry);
 
-    sprintf(entry, "&therm_right=%l", movements[RIGHT]);
+    sprintf(entry, "&therm_right=%d", movements[RIGHT]);
     add_to_array(packet_buffer, entry);
 
-    sprintf(entry, "&therm_up=%l", movements[UP]);
+    sprintf(entry, "&therm_up=%d", movements[UP]);
     add_to_array(packet_buffer, entry);
 
-    sprintf(entry, "&therm_right=%l", movements[DOWN]);
+    sprintf(entry, "&therm_right=%d", movements[DOWN]);
     add_to_array(packet_buffer, entry);
 
-    sprintf(entry, "&therm_nodir=%l", movements[NO_DIRECTION]);
+    sprintf(entry, "&therm_nodir=%d", movements[NO_DIRECTION]);
     add_to_array(packet_buffer, entry);
 
-    sprintf(entry, "&lights_on=%T", light_state);
+    sprintf(entry, "&lights_on=%s", (light_state ? "ON" : "OFF"));
     add_to_array(packet_buffer, entry);
 
-    sprintf(entry, "&pir_count=%l", motion.num_detections);
+    sprintf(entry, "&pir_count=%d", motion.num_detections);
     add_to_array(packet_buffer, entry);
 
     add_to_array(packet_buffer, const_cast<char*>(GET_TAIL));
@@ -660,16 +660,20 @@ void start_server() {
     * Start the web server
     */
 
-    if (mdns.begin(DEVICE_NAME, WiFi.localIP())) {
-        Log.Info("MDNS responder started");
-    }
+    WiFi.softAP(DEVICE_NAME);
+    mdns.begin(DEVICE_NAME, WiFi.localIP());
 
     server.on("/", handle_root);
     server.on("/live", handle_live);
+    server.on("/average", handle_average);
+    server.on("/variance", handle_variance);
+    server.on("/diff", handle_diff);
+    server.on("/active", handle_active);
     server.onNotFound(handle_not_found);
 
     server.begin();
-    Log.Info("HTTP server started: %s", WiFi.localIP().toString().c_str());
+    Log.Info("HTTP server started: Local %s, Hosted %s", WiFi.localIP().toString().c_str(),
+             WiFi.softAPIP().toString().c_str());
 }
 
 void handle_root() {
@@ -689,47 +693,125 @@ void handle_root() {
     body += "<tr><th>Last update</th><td>";
     body += temp;
     body += "</td></tr>";
-    body += "<tr><th>Thermal left</th><tr>";
+    body += "<tr><th>Thermal left</th><td>";
     body += tracker.movements[LEFT];
     body += "</td></tr>";
-    body += "<tr><th>Thermal right</th><tr>";
+    body += "<tr><th>Thermal right</th><td>";
     body += tracker.movements[RIGHT];
     body += "</td></tr>";
-    body += "<tr><th>Thermal up</th><tr>";
+    body += "<tr><th>Thermal up</th><td>";
     body += tracker.movements[UP];
     body += "</td></tr>";
-    body += "<tr><th>Thermal down</th><tr>";
+    body += "<tr><th>Thermal down</th><td>";
     body += tracker.movements[DOWN];
     body += "</td></tr>";
-    body += "<tr><th>Thermal none</th><tr>";
+    body += "<tr><th>Thermal none</th><td>";
     body += tracker.movements[NO_DIRECTION];
     body += "</td></tr>";
-    body += "<tr><th>PIR Count</th><tr>";
+    body += "<tr><th>PIR Count</th><td>";
     body += motion.num_detections;
     body += "</td></tr>";
-    body += "<tr><th>Light state</th><tr>";
-    body += light_state + "</td></tr>";
-    dtostrf(thermal_flow.get_ambient_temperature(), 0, 2, temp);
-    body += "<tr><th>Ambient Temperature</th><tr>";
+    body += "<tr><th>Light state</th><td>";
+    sprintf(temp, "%s", light_state ? "ON" : "OFF");
+    body += temp;
+    body += "</td></tr>";
+    dtostrf(thermal_flow.get_ambient_temperature(), 4, 2, temp);
+    body += "<tr><th>Ambient Temperature</th><td>";
     body += temp;
     body += " °C</td></tr>";
     body += "<hr><a href=\"live\">Live feed</a>";
+    body += "<hr><a href=\"average\">Averages</a>";
+    body += "<hr><a href=\"variance\">Variances</a>";
+    body += "<hr><a href=\"diff\">Difference</a>";
+    body += "<hr><a href=\"active\">Active Pixels</a>";
 
     server.send(200, "text/html", header + body + footer);
 }
 
 void handle_live() {
+    min_display_temperature = 20;
+    max_display_temperature = 50;
+    String page = generate_live_view(tracker.frame);
+    server.send(200, "text/html", page);
+}
+
+void handle_average() {
+    min_display_temperature = 20;
+    max_display_temperature = 50;
+    String page = generate_live_view(tracker.pixel_averages);
+    server.send(200, "text/html", page);
+}
+
+void handle_variance() {
+    min_display_temperature = 0;
+    max_display_temperature = 5;
+    String page = generate_live_view(tracker.pixel_variance);
+    server.send(200, "text/html", page);
+}
+
+void handle_diff() {
+    min_display_temperature = -5;
+    max_display_temperature = 5;
+    float diff[4][16];
+
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 16; j++) {
+            diff[i][j] = tracker.frame[i][j] - tracker.pixel_averages[i][j];
+        }
+    }
+
+    String page = generate_live_view(diff);
+    server.send(200, "text/html", page);
+}
+
+void handle_active() {
+    min_display_temperature = 0;
+    max_display_temperature = 1;
+    float active[4][16];
+
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 16; j++) {
+            float temp = tracker.frame[i][j];
+            float average = tracker.pixel_averages[i][j];
+            float variance = tracker.pixel_variance[i][j];
+
+            float temperature_difference = absolute(average - temp);
+
+            if (temperature_difference > (variance * 3) && temperature_difference > MINIMUM_TEMPERATURE_DIFFERENTIAL) {
+                active[i][j] = 1;
+            } else {
+                active[i][j] = 0;
+            }
+        }
+    }
+
+    String page = generate_live_view(active);
+    server.send(200, "text/html", page);
+}
+
+String generate_live_view(float values[4][16]) {
     /**
     * Generate the html for the live page.
     * The live page contains a false-colour temperature map of the sensor output
     */
-    String page = RELOAD_SCRIPT;
-    page += generate_colour_map(tracker.frame);
-    page += "<html><head><title> NodeMLX Live Feed</title></head><body>";
-    page += generate_temperature_table(tracker.frame);
+
+    for (int i = 0; i < server.args(); i++) {
+        if (server.argName(i) == "min") {
+            min_display_temperature = server.arg(i).toFloat();
+        }
+
+        else if (server.argName(i) == "max") {
+            max_display_temperature = server.arg(i).toFloat();
+        }
+    }
+
+    String page = "";
+    page += generate_colour_map(values);
+    page += "<html><head><title> NodeMLX Live Feed</title><meta http-equiv=\"refresh\" content=\"0.5\"/></head><body>";
+    page += generate_temperature_table(values);
     page += "<hr><a href=\"\\\">Back</a></body></html>";
 
-    server.send(200, "text/html", page);
+    return page;
 }
 
 int calculate_hue(float temperature) {
@@ -739,8 +821,8 @@ int calculate_hue(float temperature) {
     * @param temperature Temperature to map to a hue
     * @return Hue of the input temperature relative to the set bounds
     */
-    int temp = constrain(temperature * 5, MIN_DISPLAY_TEMPERATURE * 5, MAX_DISPLAY_TEMPERATURE * 5);
-    int hue = map(temp, MIN_DISPLAY_TEMPERATURE * 5, MAX_DISPLAY_TEMPERATURE * 5, COLD_HUE, HOT_HUE);
+    int temp = constrain(temperature * 5, min_display_temperature * 5, max_display_temperature * 5);
+    int hue = map(temp, min_display_temperature * 5, max_display_temperature * 5, COLD_HUE, HOT_HUE);
     return hue;
 }
 
@@ -751,7 +833,8 @@ String generate_colour_map(float temperatures[4][16]) {
     * @param temperature The temperature frame recorded by the sensor
     * @return The CSS script for displaying the table colours
     */
-    String css = "<style type=\"text/css\">\n.thermal{color: 0xFFFFFF}\n";
+    String css =
+        "<style type=\"text/css\">\n.thermal{color: 0xFFFFFF; border: 1px solid black; width: 100%; height: 60%}\n";
 
     for (int y = 0; y < 4; y++) {
         for (int x = 0; x < 16; x++) {
@@ -775,16 +858,16 @@ String generate_temperature_table(float temperature[4][16]) {
     String table = "<table class=thermal>\n";
 
     for (int row = 0; row < 4; row++) {
-        table += "<td>\n";
+        table += "<tr>\n";
 
         for (int column = 0; column < 16; column++) {
             char cell[50];
             char temp[8];
             dtostrf(temperature[row][column], 0, 2, temp);
-            sprintf(cell, "<td class=r%dc%d> %s </td>\n", row, column, temp);
+            sprintf(cell, "<th class=r%dc%d> %s </th>\n", row, column, temp);
             table += cell;
         }
-        table += "</td>\n";
+        table += "</tr>\n";
     }
 
     table += "</table>\n";

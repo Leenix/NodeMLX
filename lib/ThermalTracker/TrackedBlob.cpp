@@ -46,6 +46,10 @@ void TrackedBlob::set(Blob blob){
     clear();
     copy_blob(blob);
     _has_updated = true;
+    start_pos[0] = blob.centroid[0];
+    start_pos[1] = blob.centroid[1];
+    times_updated = 0;
+    start_time = millis();
 }
 
 bool TrackedBlob::is_active(){
@@ -76,7 +80,9 @@ void TrackedBlob::update_blob(Blob blob){
 
         copy_blob(blob);
 
+        event_duration = millis() - start_time;
         _has_updated = true;
+        times_updated++;
 }
 
 bool TrackedBlob::has_updated(){

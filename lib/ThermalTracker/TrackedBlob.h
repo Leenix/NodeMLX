@@ -26,13 +26,17 @@ public:
     float get_distance(Blob other_blob);
     void copy(TrackedBlob tblob);
 
-//private:
     void copy_blob(Blob blob);
 
     Blob _blob;
     float _predicted_position[2];
     float _travel[2];
+    long start_time;
+    long event_duration;
     bool _has_updated;
+    int times_updated;
+    float start_pos[2];
+    float end_pos[2];
 };
 
 

@@ -3,12 +3,13 @@
 ////////////////////////////////////////////////////////////////////////////////
 // Constructor
 
-ThermalTracker::ThermalTracker(int _running_average_size, int _max_distance_threshold, int _min_blob_size){
+ThermalTracker::ThermalTracker(int _running_average_size, int _max_distance_threshold, int _min_blob_size) {
     /**
     * Constructor - Make a new thermal tracker object
     * The thermal tracker uses a MLX90621 thermopile array to observe moving objects in its view.
     * @param _running_average_size The number of frames to include as the running background average in calculations
-    * @param _max_distance_threshold The maximum amount of difference between blobs before they are considered different objects between frames
+    * @param _max_distance_threshold The maximum amount of difference between blobs before they are considered different
+    * objects between frames
     * @param _min_blob_size The minimum pixel area that an object can occupy before it is tracked
     */
     running_average_size = _running_average_size;
@@ -18,18 +19,17 @@ ThermalTracker::ThermalTracker(int _running_average_size, int _max_distance_thre
     num_background_frames = 0;
 }
 
-
 ////////////////////////////////////////////////////////////////////////////////
 // Initialisation
 
-void ThermalTracker::reset_background(){
+void ThermalTracker::reset_background() {
     /**
     * Reset the number of frames in the running background, forcing the tracker to recreate.
     */
     num_background_frames = 0;
 }
 
-void ThermalTracker::process_frame(float frame_buffer[FRAME_HEIGHT][FRAME_WIDTH]){
+void ThermalTracker::process_frame(float frame_buffer[FRAME_HEIGHT][FRAME_WIDTH]) {
     /**
     * Process an input thermal frame.
     * If a background has not yet been established, the frame goes directly to the background without tracking.
@@ -40,12 +40,12 @@ void ThermalTracker::process_frame(float frame_buffer[FRAME_HEIGHT][FRAME_WIDTH]
     load_frame(frame_buffer);
 
     // Has the background been built first? If not; build it!
-    if (!finished_building_background()){
+    if (!finished_building_background()) {
         build_background();
     }
 
     // Background already built; go track all the things!
-    else{
+    else {
         bool add_frame_to_average = true;
         Blob blobs[MAX_BLOBS];
 
@@ -54,20 +54,18 @@ void ThermalTracker::process_frame(float frame_buffer[FRAME_HEIGHT][FRAME_WIDTH]
         int num_blobs = get_num_blobs(blobs);
 
         // Activity check - don't add frames to background when there is activity
-        // There is a limit to this though if the in-frame blobs stay the same for a certain amount of time (default 4 seconds)
+        // There is a limit to this though if the in-frame blobs stay the same for a certain amount of time (default 4
+        // seconds)
         if (num_blobs > 0) {
             add_frame_to_average = false;
 
-            if (num_blobs == num_last_blobs){
-                num_unchanged_frames++;
-            }
-            else{
-                num_unchanged_frames = 0;
-            }
+            num_unchanged_frames++;
 
-            if (num_unchanged_frames > UNCHANGED_FRAME_DELAY){
+            if (num_unchanged_frames > UNCHANGED_FRAME_DELAY) {
                 add_frame_to_average = true;
             }
+        } else {
+            num_unchanged_frames = 0;
         }
 
         num_last_blobs = num_blobs;
@@ -79,7 +77,7 @@ void ThermalTracker::process_frame(float frame_buffer[FRAME_HEIGHT][FRAME_WIDTH]
     }
 }
 
-void ThermalTracker::load_frame(float frame_buffer[FRAME_HEIGHT][FRAME_WIDTH]){
+void ThermalTracker::load_frame(float frame_buffer[FRAME_HEIGHT][FRAME_WIDTH]) {
     /**
     * Load an input frame into the buffer.
     * @param frame_buffer A 2D array containing the pixel temperatures to be added to the buffer
@@ -91,13 +89,15 @@ void ThermalTracker::load_frame(float frame_buffer[FRAME_HEIGHT][FRAME_WIDTH]){
     }
 }
 
-void ThermalTracker::build_background(){
+void ThermalTracker::build_background() {
     /**
     * Add the currently-loaded frame to the background.
     * The background forms the basis for determining which pixels have changed to indicate movement.
     * Note: This function is only meant to be run once before tracking begins.
-    *       Frames are still added to the background after tracking begins using the add_frame_to_to_running_background function.
-    *       add_frame_to_to_running_background uses a running average and variance to operate whereas this function uses a fixed population size.
+    *       Frames are still added to the background after tracking begins using the add_frame_to_to_running_background
+    * function.
+    *       add_frame_to_to_running_background uses a running average and variance to operate whereas this function uses
+    * a fixed population size.
     */
 
     if (num_background_frames == 0) {
@@ -109,7 +109,7 @@ void ThermalTracker::build_background(){
         }
     }
 
-    else{
+    else {
         // Mean the frames together to form the background and calculate variance
         for (int i = 0; i < FRAME_HEIGHT; i++) {
             for (int j = 0; j < FRAME_WIDTH; j++) {
@@ -125,42 +125,43 @@ void ThermalTracker::build_background(){
     num_background_frames++;
 
     // Calculate the standard deviation of the frames when the background has finished building
-    if (num_background_frames == running_average_size){
-
+    if (num_background_frames == running_average_size) {
         // Calculate standard deviation using Welford's Method
         // See: https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance
         // Also: http://jonisalonen.com/2013/deriving-welfords-method-for-computing-variance/
         for (int i = 0; i < FRAME_HEIGHT; i++) {
             for (int j = 0; j < FRAME_WIDTH; j++) {
-                pixel_variance[i][j] = sqrtf(pixel_variance[i][j]/(num_background_frames - 1));
+                pixel_variance[i][j] = sqrtf(pixel_variance[i][j] / (num_background_frames - 1));
             }
         }
     }
 }
 
-void ThermalTracker::add_frame_to_to_running_background(){
+void ThermalTracker::add_frame_to_to_running_background() {
     /**
     * Add the current frame to the running background
     * Both mean and variance are calculated as an incremental, weighted value
     * Note: This method is different to build_background in that the averages and variances are rolling.
     *       Pixel averages and variances are weighted and averaged out of significance as new frames are added.
-    *       This results in the averages and variances to be inaccurate, but 'close enough' to function in this implementation.
+    *       This results in the averages and variances to be inaccurate, but 'close enough' to function in this
+    * implementation.
     */
     for (int i = 0; i < FRAME_HEIGHT; i++) {
         for (int j = 0; j < FRAME_WIDTH; j++) {
             float temp = frame[i][j];
 
             // Add the weighted average
-            pixel_averages[i][j] = ((pixel_averages[i][j] * (running_average_size - 1)) + temp)/running_average_size;
+            pixel_averages[i][j] = ((pixel_averages[i][j] * (running_average_size - 1)) + temp) / running_average_size;
 
             // Add the weighted variance
             float incremental_variance = absolute(temp - pixel_averages[i][j]);
-            pixel_variance[i][j] = ((pixel_variance[i][j] * (running_average_size - 1)) + incremental_variance)/running_average_size;
+            pixel_variance[i][j] =
+                ((pixel_variance[i][j] * (running_average_size - 1)) + incremental_variance) / running_average_size;
         }
     }
 }
 
-bool ThermalTracker::finished_building_background(){
+bool ThermalTracker::finished_building_background() {
     /**
     * Determine if the tracker has finished build its background frames.
     * @return True if the tracker has gathered the minumum number of frames.
@@ -168,7 +169,7 @@ bool ThermalTracker::finished_building_background(){
     return (num_background_frames >= running_average_size);
 }
 
-void ThermalTracker::get_averages(float frame_buffer[FRAME_HEIGHT][FRAME_WIDTH]){
+void ThermalTracker::get_averages(float frame_buffer[FRAME_HEIGHT][FRAME_WIDTH]) {
     /**
     * Get the average temperatures of the background pixels.
     * @param frame_buffer A 2D array to pass the averages into. Averages in deg C
@@ -180,7 +181,7 @@ void ThermalTracker::get_averages(float frame_buffer[FRAME_HEIGHT][FRAME_WIDTH])
     }
 }
 
-void ThermalTracker::get_variances(float frame_buffer[FRAME_HEIGHT][FRAME_WIDTH]){
+void ThermalTracker::get_variances(float frame_buffer[FRAME_HEIGHT][FRAME_WIDTH]) {
     /**
     * Get the temperature variances of the background pixels.
     * @param frame_buffer A 2D array to pass the variances into. Variances in deg C.
@@ -192,11 +193,10 @@ void ThermalTracker::get_variances(float frame_buffer[FRAME_HEIGHT][FRAME_WIDTH]
     }
 }
 
-
 ////////////////////////////////////////////////////////////////////////////////
 // Blob detection
 
-int ThermalTracker::get_blobs(Blob blobs[]){
+int ThermalTracker::get_blobs(Blob blobs[]) {
     /**
     * Search through the current frame to find pixel 'blobs' that appear in front of the background.
     * @param blobs A Blob array to pass the detected blobs into.
@@ -206,17 +206,20 @@ int ThermalTracker::get_blobs(Blob blobs[]){
     * - Assign every active pixel to a blob
     * - Sorting ends when there are no more pixels left inside the active pixel queue
     * - Active pixels are sent to the sort queue if they are adjacent to the currently investigated pixel
-    * - After a pixel is moved to the sort queue, the active pixel queue must be resorted to remove gaps (which can be performed on the fly)
+    * - After a pixel is moved to the sort queue, the active pixel queue must be resorted to remove gaps (which can be
+    * performed on the fly)
     * - In the case of multiple adjcent active pixels in the queue, the first free position is indexed as the free space
     * - Subsequent non-adjacent pixels will be moved to the next free space
     * - To reiterate: the active pixel queue starts off populated with active pixels
     * - The active queue depletes as pixels are sorted until there are no more pixels left
     * - The number of pixels left in the active pixels queue is managed by the num_active_pixels variable
-    * - After each sweep of the queue, the active pixels are resorted to remove gaps in the array as elements are popped out
+    * - After each sweep of the queue, the active pixels are resorted to remove gaps in the array as elements are popped
+    * out
     * - The sort queue is reset with each blob that is constructed
     * - The sort queue starts with zero elements and is populated using pixels from the active pixel queue
     * - Elements are not sorted or removed from the sort queue until the blob is finalised
-    * - Pixels in the sort queue are added to the blob once they have finished checking for adjacency with active pixels, then are not operated on again
+    * - Pixels in the sort queue are added to the blob once they have finished checking for adjacency with active
+    * pixels, then are not operated on again
     */
 
     Pixel active_pixels[FRAME_WIDTH * FRAME_HEIGHT];
@@ -227,35 +230,35 @@ int ThermalTracker::get_blobs(Blob blobs[]){
     int num_active_pixels = get_active_pixels(active_pixels);
 
     // Assign every active pixel to a blob
-    while ((num_active_pixels > 0) && (num_blobs < MAX_BLOBS)){
-
+    while ((num_active_pixels > 0) && (num_blobs < MAX_BLOBS)) {
         int num_queued_pixels = 0;
         int queue_index = 0;
         vacant_index = 0;
         Pixel sort_queue[FRAME_WIDTH * FRAME_HEIGHT];
-        sort_queue[num_queued_pixels++].set(active_pixels[vacant_index].get_x(), active_pixels[vacant_index].get_y(), active_pixels[vacant_index].get_temperature());
+        sort_queue[num_queued_pixels++].set(active_pixels[vacant_index].get_x(), active_pixels[vacant_index].get_y(),
+                                            active_pixels[vacant_index].get_temperature());
         bool first_pixel = true;
 
         // Construct the current blob
         while (queue_index < num_queued_pixels) {
-
             // Find adjacent active pixels in the queue
             for (int i = 0; i < num_active_pixels; i++) {
-
-                if (first_pixel){
+                if (first_pixel) {
                     i++;
                     first_pixel = false;
                 }
 
                 // If the pixel is adjacent to the current pixel, add it to the sort queue
                 if (sort_queue[queue_index].is_adjacent(active_pixels[i])) {
-                    sort_queue[num_queued_pixels++].set(active_pixels[i].get_x(), active_pixels[i].get_y(), active_pixels[i].get_temperature());
+                    sort_queue[num_queued_pixels++].set(active_pixels[i].get_x(), active_pixels[i].get_y(),
+                                                        active_pixels[i].get_temperature());
                 }
 
-                else{
-                    if (vacant_index < i){
+                else {
+                    if (vacant_index < i) {
                         // Sort the pixel to the front of the queue
-                        active_pixels[vacant_index].set(active_pixels[i].get_x(), active_pixels[i].get_y(), active_pixels[i].get_temperature());
+                        active_pixels[vacant_index].set(active_pixels[i].get_x(), active_pixels[i].get_y(),
+                                                        active_pixels[i].get_temperature());
                     }
                     vacant_index++;
                 }
@@ -277,13 +280,13 @@ int ThermalTracker::get_blobs(Blob blobs[]){
     return num_blobs;
 }
 
-void ThermalTracker::clear_blobs(Blob blobs[MAX_BLOBS]){
+void ThermalTracker::clear_blobs(Blob blobs[MAX_BLOBS]) {
     for (int i = 0; i < MAX_BLOBS; i++) {
         blobs[i].clear();
     }
 }
 
-int ThermalTracker::get_active_pixels(Pixel pixel_buffer[]){
+int ThermalTracker::get_active_pixels(Pixel pixel_buffer[]) {
     /**
     * Return the active pixels in the current frame.
     * @param active Array of Pixel objects. Active pixels are added to the array.
@@ -299,7 +302,7 @@ int ThermalTracker::get_active_pixels(Pixel pixel_buffer[]){
 
             float temperature_difference = absolute(average - temp);
 
-            if (temperature_difference > (variance * 3) && temperature_difference > MINIMUM_TEMPERATURE_DIFFERENTIAL) {
+            if (temperature_difference > (variance * 4) && temperature_difference > MINIMUM_TEMPERATURE_DIFFERENTIAL) {
                 pixel_buffer[num_active++].set(j, i, temp);
             }
         }
@@ -308,7 +311,7 @@ int ThermalTracker::get_active_pixels(Pixel pixel_buffer[]){
     return num_active;
 }
 
-void ThermalTracker::remove_small_blobs(Blob blobs[MAX_BLOBS]){
+void ThermalTracker::remove_small_blobs(Blob blobs[MAX_BLOBS]) {
     /**
     * Drop any blobs that are smaller than the minimum required size.
     * Must be performed after the blobs have finished building
@@ -326,8 +329,7 @@ void ThermalTracker::remove_small_blobs(Blob blobs[MAX_BLOBS]){
             if (i < vacant_index) {
                 vacant_index = i;
             }
-        }
-        else{
+        } else {
             // Blob is big enough; make sure there are no gaps
             if (i > vacant_index) {
                 blobs[vacant_index++].copy(blobs[i]);
@@ -337,15 +339,15 @@ void ThermalTracker::remove_small_blobs(Blob blobs[MAX_BLOBS]){
     }
 }
 
-int ThermalTracker::get_num_blobs(Blob blobs[MAX_BLOBS]){
+int ThermalTracker::get_num_blobs(Blob blobs[MAX_BLOBS]) {
     /**
     * Get the number of active blobs in an array
     * @param blobs Array containing the blobs. Yup. Pretty much what it says on the label...
     * @return Number of active blobs in the array.
     */
     int num_blobs = 0;
-    for(int i = 0; i < MAX_BLOBS; i++){
-        if(blobs[i].is_active()){
+    for (int i = 0; i < MAX_BLOBS; i++) {
+        if (blobs[i].is_active()) {
             num_blobs++;
         }
     }
@@ -353,27 +355,26 @@ int ThermalTracker::get_num_blobs(Blob blobs[MAX_BLOBS]){
     return num_blobs;
 }
 
-int ThermalTracker::get_num_blobs(TrackedBlob blobs[MAX_BLOBS]){
+int ThermalTracker::get_num_blobs(TrackedBlob blobs[MAX_BLOBS]) {
     /**
     * Get the number of active blobs in an array
     * @param blobs Array containing the blobs. Yup. Pretty much what it says on the label...
     * @return Number of active blobs in the array.
     */
     int num_blobs = 0;
-    for(int i = 0; i < MAX_BLOBS; i++){
-        if(blobs[i].is_active()){
+    for (int i = 0; i < MAX_BLOBS; i++) {
+        if (blobs[i].is_active()) {
             num_blobs++;
         }
     }
 
     return num_blobs;
 }
-
 
 ////////////////////////////////////////////////////////////////////////////////
 // Inter-frame tracking
 
-void ThermalTracker::track_blobs(Blob new_blobs[], TrackedBlob tracked_blobs[]){
+void ThermalTracker::track_blobs(Blob new_blobs[], TrackedBlob tracked_blobs[]) {
     /**
     * Track blobs between frames using its characteristics to match the old with the new.
     * @param new_blobs Blobs from the latest frame
@@ -392,7 +393,7 @@ void ThermalTracker::track_blobs(Blob new_blobs[], TrackedBlob tracked_blobs[]){
     add_remaining_blobs_to_tracked(new_blobs, tracked_blobs);
 }
 
-void ThermalTracker::sort_tracked_blobs(TrackedBlob tracked_blobs[]){
+void ThermalTracker::sort_tracked_blobs(TrackedBlob tracked_blobs[]) {
     /**
     * Sort the tracked blobs to make sure there aren't any gaps.
     * Tracked blobs that have not been updated are cleared from the list
@@ -404,16 +405,15 @@ void ThermalTracker::sort_tracked_blobs(TrackedBlob tracked_blobs[]){
     int free_index = MAX_BLOBS + 1;
     for (int i = 0; i < MAX_BLOBS; i++) {
         if (tracked_blobs[i].has_updated()) {
-
             // Tracked blob has updated
             // Keep it in the list, but move it up if there are gaps
-            if (free_index < i){
+            if (free_index < i) {
                 tracked_blobs[free_index++].copy(tracked_blobs[i]);
                 tracked_blobs[i].clear();
             }
         }
 
-        else{
+        else {
             // Tracked blob not updated
             // If it was active, process the movement
             if (tracked_blobs[i].is_active()) {
@@ -439,22 +439,29 @@ void ThermalTracker::add_remaining_blobs_to_tracked(Blob new_blobs[MAX_BLOBS], T
     int num_new_blobs = get_num_blobs(new_blobs);
     int num_unassigned_blobs = get_num_unassigned_blobs(new_blobs);
 
-    //AN: Can validate numbers here: num_updated_blobs == (new_blobs - num_unassigned_blobs)
+    // AN: Can validate numbers here: num_updated_blobs == (new_blobs - num_unassigned_blobs)
 
     if (num_unassigned_blobs > 0) {
         int i = 0;
         while (num_unassigned_blobs > 0 && i < MAX_BLOBS) {
-            if (new_blobs[i].is_active() && !new_blobs[i].is_assigned()){
-                tracked_blobs[num_updated_blobs++].set(new_blobs[i]);
-                new_blobs[i].set_assigned();    // Probably not necessary...
+            if (new_blobs[i].is_active() && !new_blobs[i].is_assigned()) {
+                tracked_blobs[num_updated_blobs].set(new_blobs[i]);
+                new_blobs[i].set_assigned();  // Probably not necessary...
                 num_unassigned_blobs--;
+
+                // New tracking event. Do the callback if it exists
+                if (tracking_start_callback) {
+                    (*tracking_start_callback)(tracked_blobs[num_updated_blobs]);
+                }
+
+                num_updated_blobs++;
             }
             i++;
         }
     }
 }
 
-void ThermalTracker::update_tracked_blobs(Blob new_blobs[MAX_BLOBS], TrackedBlob tracked_blobs[MAX_BLOBS]){
+void ThermalTracker::update_tracked_blobs(Blob new_blobs[MAX_BLOBS], TrackedBlob tracked_blobs[MAX_BLOBS]) {
     /**
     * Update the details of previously tracked blobs if there is a similar enough to a current blob.
     * @param new_blobs Blobs from the last frame
@@ -465,13 +472,15 @@ void ThermalTracker::update_tracked_blobs(Blob new_blobs[MAX_BLOBS], TrackedBlob
         new_blobs[i].clear_assigned();
     }
 
-    // Create a distance matrix to show which blobs are likely the same across frames (lower distance == more likely the same)
-    float distance_matrix[MAX_BLOBS][MAX_BLOBS]; /**< Stores the distance values between every tracked_blob/new_blob combination */
+    // Create a distance matrix to show which blobs are likely the same across frames (lower distance == more likely the
+    // same)
+    float distance_matrix[MAX_BLOBS][MAX_BLOBS]; /**< Stores the distance values between every tracked_blob/new_blob
+                                                    combination */
     int indexes[2];
     generate_distance_matrix(tracked_blobs, new_blobs, distance_matrix);
 
     // Keep going until there are no more matches
-    while(get_lowest_distance(distance_matrix, indexes) < max_distance_threshold){
+    while (get_lowest_distance(distance_matrix, indexes) < max_distance_threshold) {
         // Update the tracked blob
         tracked_blobs[indexes[0]].update_blob(new_blobs[indexes[1]]);
 
@@ -481,7 +490,8 @@ void ThermalTracker::update_tracked_blobs(Blob new_blobs[MAX_BLOBS], TrackedBlob
     }
 }
 
-void ThermalTracker::generate_distance_matrix(TrackedBlob tracked_blobs[MAX_BLOBS], Blob blobs[MAX_BLOBS],float output[MAX_BLOBS][MAX_BLOBS]){
+void ThermalTracker::generate_distance_matrix(TrackedBlob tracked_blobs[MAX_BLOBS], Blob blobs[MAX_BLOBS],
+                                              float output[MAX_BLOBS][MAX_BLOBS]) {
     /**
     * Generate a matrix of the distances between the tracked blobs and blobs.
     * @param tracked_blobs List containing the tracked blobs
@@ -493,15 +503,14 @@ void ThermalTracker::generate_distance_matrix(TrackedBlob tracked_blobs[MAX_BLOB
         for (int j = 0; j < MAX_BLOBS; j++) {
             if (blobs[j].is_active() && tracked_blobs[i].is_active()) {
                 output[i][j] = tracked_blobs[i].get_distance(blobs[j]);
-            }
-            else{
+            } else {
                 output[i][j] = 999;
             }
         }
     }
 }
 
-float ThermalTracker::get_lowest_distance(float distance_matrix[MAX_BLOBS][MAX_BLOBS], int indexes[2]){
+float ThermalTracker::get_lowest_distance(float distance_matrix[MAX_BLOBS][MAX_BLOBS], int indexes[2]) {
     /**
     * Get the index and value of the lowest distance in the distance matrix
     * @param distance_matrix Matrix containing the distance values between the different tracked blobs and normal blobs.
@@ -515,7 +524,7 @@ float ThermalTracker::get_lowest_distance(float distance_matrix[MAX_BLOBS][MAX_B
     for (int i = 0; i < MAX_BLOBS; i++) {
         for (int j = 0; j < MAX_BLOBS; j++) {
             float distance = distance_matrix[i][j];
-            if ( distance < lowest && distance < max_distance_threshold) {
+            if (distance < lowest && distance < max_distance_threshold) {
                 lowest = distance;
                 x_index = i;
                 y_index = j;
@@ -528,7 +537,7 @@ float ThermalTracker::get_lowest_distance(float distance_matrix[MAX_BLOBS][MAX_B
     return lowest;
 }
 
-void ThermalTracker::remove_distance_row_col(int row, int col, float distance_matrix[MAX_BLOBS][MAX_BLOBS]){
+void ThermalTracker::remove_distance_row_col(int row, int col, float distance_matrix[MAX_BLOBS][MAX_BLOBS]) {
     /**
     * Remove a row and column from the distance matrix so it cannot be used in matching up blobs with tracked blobs.
     * The entire row and column are marked with a distance of 999, which is far above the maximum distance threshold.
@@ -543,7 +552,7 @@ void ThermalTracker::remove_distance_row_col(int row, int col, float distance_ma
     }
 }
 
-void ThermalTracker::process_blob_movements(TrackedBlob blob){
+void ThermalTracker::process_blob_movements(TrackedBlob blob) {
     /**
     * Check if a dying tracked blob has travelled far enough to register a movement.
     * If a tracked blob travels over the the net minimum travel threshold.
@@ -557,7 +566,7 @@ void ThermalTracker::process_blob_movements(TrackedBlob blob){
         movement_added = true;
         if (blob.get_travel(X) < 0) {
             add_movement(LEFT);
-        }else{
+        } else {
             add_movement(RIGHT);
         }
     }
@@ -567,18 +576,24 @@ void ThermalTracker::process_blob_movements(TrackedBlob blob){
         movement_added = true;
         if (blob.get_travel(Y) > 0) {
             add_movement(UP);
-        }else{
+        } else {
             add_movement(DOWN);
         }
     }
 
     // No direction! Thing disappeared in a single frame or stopped moving. Cheeky shit.
-    if (!movement_added){
+    if (!movement_added) {
         add_movement(NO_DIRECTION);
     }
+
+    if (tracking_end_callback) {
+        (*tracking_end_callback)(blob);
+    }
+
+    last_blob_size = blob._blob.get_size();
 }
 
-void ThermalTracker::add_movement(int direction){
+void ThermalTracker::add_movement(int direction) {
     /**
     * Increment the movement of the specified direction
     * @param direction The direction to increment movements to
@@ -588,7 +603,7 @@ void ThermalTracker::add_movement(int direction){
     movement_changed_since_last_check = true;
 }
 
-void ThermalTracker::get_movements(long _movements[NUM_DIRECTION_CATEGORIES]){
+void ThermalTracker::get_movements(long _movements[NUM_DIRECTION_CATEGORIES]) {
     /**
     * Get the list of movements recorded by the tracker
     * Reading the movements clears the movement_changed_since_last_check flag.
@@ -603,7 +618,7 @@ void ThermalTracker::get_movements(long _movements[NUM_DIRECTION_CATEGORIES]){
     movement_changed_since_last_check = false;
 }
 
-bool ThermalTracker::has_new_movements(){
+bool ThermalTracker::has_new_movements() {
     /**
     * Determine if there have been any new movements since the last check.
     * Grabbing the movements will clear the flag
@@ -612,13 +627,13 @@ bool ThermalTracker::has_new_movements(){
     return movement_changed_since_last_check;
 }
 
-void ThermalTracker::reset_movements(){
+void ThermalTracker::reset_movements() {
     for (int i = 0; i < 5; i++) {
         movements[i] = 0;
     }
 }
 
-int ThermalTracker::get_num_unassigned_blobs(Blob blobs[MAX_BLOBS]){
+int ThermalTracker::get_num_unassigned_blobs(Blob blobs[MAX_BLOBS]) {
     /**
     * Get the number of blobs that have not been assigned to a tracked blob
     * @param blobs A list of blobs to be tracked
@@ -634,7 +649,7 @@ int ThermalTracker::get_num_unassigned_blobs(Blob blobs[MAX_BLOBS]){
     return num_unassigned;
 }
 
-int ThermalTracker::get_num_updated_blobs(TrackedBlob tracked_blobs[MAX_BLOBS]){
+int ThermalTracker::get_num_updated_blobs(TrackedBlob tracked_blobs[MAX_BLOBS]) {
     /**
     * Get the number of blobs that have been updated in the tracked blob list
     * @param tracked_blobs List containing the tracked blobs
@@ -642,7 +657,7 @@ int ThermalTracker::get_num_updated_blobs(TrackedBlob tracked_blobs[MAX_BLOBS]){
     */
     int num_updated = 0;
     for (int i = 0; i < MAX_BLOBS; i++) {
-        if(tracked_blobs[i].has_updated()){
+        if (tracked_blobs[i].has_updated()) {
             num_updated++;
         }
     }
@@ -650,10 +665,41 @@ int ThermalTracker::get_num_updated_blobs(TrackedBlob tracked_blobs[MAX_BLOBS]){
     return num_updated;
 }
 
-int ThermalTracker::get_num_last_blobs(){
+int ThermalTracker::get_num_last_blobs() {
     /**
     * Get the number of blobs that were in the last processed frame.
     * Small blobs below the threshold are cut from the blob numbers.
     */
     return num_last_blobs;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Callbacks
+
+void ThermalTracker::set_tracking_start_callback(tracked_callback callback) {
+    /**
+    * Set the callback for when tracking starts on a new blob
+    * Call without parameters to clear the callback
+    *
+    * @param callback Function to call when tracking starts (tracked blob object is passed)
+    */
+    if (callback) {
+        tracking_start_callback = callback;
+    } else {
+        tracking_start_callback = NULL;
+    }
+}
+
+void ThermalTracker::set_tracking_end_callback(tracked_callback callback) {
+    /**
+    * Set the callback for when tracking ends on a previously tracked blob
+    * Call without parameters to clear the callback
+    *
+    * @param callback Function to call when tracking ends (tracked blob object is passed)
+    */
+    if (callback) {
+        tracking_end_callback = callback;
+    } else {
+        tracking_end_callback = NULL;
+    }
 }
