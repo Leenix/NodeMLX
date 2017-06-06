@@ -3,7 +3,7 @@
 ////////////////////////////////////////////////////////////////////////////////
 // Constructor
 
-Blob::Blob(void){
+Blob::Blob(void) {
     /**
     * Create a new blob object.
     * Blobs are clumps of adjacent pixels that are aggregated to have generalised characteristics.
@@ -16,7 +16,7 @@ Blob::Blob(void){
 ////////////////////////////////////////////////////////////////////////////////
 // Public Methods
 
-void Blob::clear(){
+void Blob::clear() {
     /**
     * Clear the blob configuration to set it back to blank.
     */
@@ -34,7 +34,7 @@ void Blob::clear(){
     clear_assigned();
 }
 
-void Blob::add_pixel(Pixel pixel){
+void Blob::add_pixel(Pixel pixel) {
     /**
     * Add a new pixel to the blob
     * The blob will need to recalculate its shape and other aspects
@@ -50,13 +50,12 @@ void Blob::add_pixel(Pixel pixel){
     float pixel_temp = pixel.get_temperature();
     num_pixels++;
 
-    average_temperature = (average_temperature * (num_pixels-1) + pixel_temp) / float(num_pixels);
+    average_temperature = (average_temperature * (num_pixels - 1) + pixel_temp) / float(num_pixels);
     recalculate_bounds(pixel_x, pixel_y);
     recalculate_centroid(pixel_x, pixel_y);
-
 }
 
-void Blob::copy(Blob blob){
+void Blob::copy(Blob blob) {
     /**
     * Copy the information of another blob.
     * All previous information in the blob is overwritten.
@@ -77,7 +76,7 @@ void Blob::copy(Blob blob){
     num_pixels = blob.num_pixels;
 }
 
-bool Blob::is_active(){
+bool Blob::is_active() {
     /**
     * Determine if the blob is actually being used.
     * A blob must have at least one pixel to be considered active.
@@ -86,14 +85,14 @@ bool Blob::is_active(){
     return num_pixels > 0;
 }
 
-void Blob::set_assigned(){
+void Blob::set_assigned() {
     /**
     * Set the assigned flag, which indicates the blob has been assigned to a tracked blob object
     */
     _is_assigned = true;
 }
 
-bool Blob::is_assigned(){
+bool Blob::is_assigned() {
     /**
     * Determine if the blob has been assigned to a tracked blob.
     * @return True if the blob has been assigned.
@@ -101,7 +100,7 @@ bool Blob::is_assigned(){
     return _is_assigned;
 }
 
-void Blob::clear_assigned(){
+void Blob::clear_assigned() {
     /**
     * Clear the state of the is_assigned flag.
     * This indicates the blob has not been assigned to a tracked blob.
@@ -110,7 +109,7 @@ void Blob::clear_assigned(){
     _is_assigned = false;
 }
 
-int Blob::get_size(){
+int Blob::get_size() {
     /**
     * Get the number of pixels contained in the blob
     * @return Number of pixels the blob has absorbed
@@ -121,7 +120,7 @@ int Blob::get_size(){
 ////////////////////////////////////////////////////////////////////////////////
 // Private Methods
 
-void Blob::recalculate_bounds(int pixel_x, int pixel_y){
+void Blob::recalculate_bounds(int pixel_x, int pixel_y) {
     /**
     * Recalculate the minimum and maximum bounds of the blob.
     * Secondary values including the width, height, and aspect ratio of the blob are also recalculated.
@@ -131,7 +130,7 @@ void Blob::recalculate_bounds(int pixel_x, int pixel_y){
     */
 
     // First pixel added to the blob; initialise the values
-    if (num_pixels == 1){
+    if (num_pixels == 1) {
         min[X] = pixel_x;
         min[Y] = pixel_y;
         max[X] = pixel_x;
@@ -139,8 +138,8 @@ void Blob::recalculate_bounds(int pixel_x, int pixel_y){
     }
 
     // Not the first; business as usual
-    else{
-        if (pixel_x > max[X]){
+    else {
+        if (pixel_x > max[X]) {
             max[X] = pixel_x;
         }
 
@@ -159,10 +158,10 @@ void Blob::recalculate_bounds(int pixel_x, int pixel_y){
 
     width = (max[X] - min[X]) + 1;
     height = (max[Y] - min[Y]) + 1;
-    aspect_ratio = float(width)/float(height);
+    aspect_ratio = float(width) / float(height);
 }
 
-void Blob::recalculate_centroid(float pixel_x, float pixel_y){
+void Blob::recalculate_centroid(float pixel_x, float pixel_y) {
     /**
     * Recalculate the centroid location of the blob
     * This occurs every time a new pixel is added to the blob because the old values are invalidated.
@@ -172,6 +171,6 @@ void Blob::recalculate_centroid(float pixel_x, float pixel_y){
     total_x += pixel_x;
     total_y += pixel_y;
 
-    centroid[X] = total_x/num_pixels;
-    centroid[Y] = total_y/num_pixels;
+    centroid[X] = total_x / num_pixels;
+    centroid[Y] = total_y / num_pixels;
 }

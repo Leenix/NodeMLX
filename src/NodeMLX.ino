@@ -13,14 +13,15 @@
 #include "SPI.h"
 #include "SimpleTimer.h"
 #include "ThermalTracker.h"
-#include "i2c_t3.h"
+#include "Wire.h"
+#include "user_interface.h"
 
 ////////////////////////////////////////////////////////////////////////////////
 // Constants
 ////////////////////////////////////////////////////////////////////////////////
 // Versioning
 const char* DEVICE_NAME = "NodeMLX";
-const char* VERSION = "1.2";
+const char* NODE_MLX_VERSION = "20170606";
 
 // Pins
 const byte BUTTON_PIN = D0;
@@ -33,16 +34,17 @@ const byte LIGHT_SENS_PIN = A0;
 const long SERIAL_BAUD = 115200;
 const int LOGGER_LEVEL = LOG_LEVEL_INFOS;
 const char PACKET_START = '#';
-const char PACKET_END = '$';
+const char PACKET_STOP = '$';
 
 // Thermal flow
+const int REFRESH_RATE = 32;
 const long THERMAL_FRAME_INTERVAL = 1000 / REFRESH_RATE;
 const long THERMAL_CHECK_MOVEMENT_INTERVAL = 500;
 const long BACKGROUND_CHECK_INTERVAL = 200;
 const long PRINT_FRAME_INTERVAL = 1000;
 
 // Thermal flow tracker
-const int TRACKER_NUM_BACKGROUND_FRAMES = 200;
+const int TRACKER_NUM_BACKGROUND_FRAMES = 400;
 const int TRACKER_MINIMUM_DISTANCE = 150;
 const int TRACKER_MINIMUM_BLOB_SIZE = 5;
 
@@ -68,6 +70,11 @@ const int UPLOAD_SERVER_PORT = 80;
 const char GET_REQUEST[] = "GET /dweet/for/";
 const char GET_TAIL[] = " HTTP/1.1\r\n\r\n";
 const long TIMEOUT = 5000;  // TCP timeout in ms
+const int TRACKED_BLOB_BUFFER_SIZE = 5;
+const char* NAV_TABLE =
+    "<hr><table style=\"width:75%\"><th><a href=\"live\">Live feed</a></th><th><a "
+    "href=\"average\">Averages</a></th><th><a href=\"variance\">Variances</a></th><th><a "
+    "href=\"diff\">Difference</a></th><th><a href=\"active\">Active Pixels</a></th></table>";
 
 // Server
 const int SERVER_PORT = 80;
@@ -102,6 +109,7 @@ void process_new_frame();
 void print_new_movements();
 void check_background();
 void print_frame();
+void print_tracked_blob(TrackedBlob blob);
 
 void start_pir();
 void update_pir();
@@ -147,7 +155,7 @@ String generate_temperature_table(float[4][16]);
 
 SimpleTimer timer;
 MLX90621 thermal_flow;
-ThermalTracker tracker(TRACKER_NUM_BACKGROUND_FRAMES, TRACKER_MINIMUM_DISTANCE, TRACKER_MINIMUM_BLOB_SIZE);
+ThermalTracker tracker;
 PIR motion(PIR_PIN, MOTION_COOLDOWN_DEFAULT);
 Button button = Button(BUTTON_PIN, BUTTON_PULLUP, BUTTON_DEBOUNCE_ENABLED, BUTTON_DEBOUNCE_TIME);
 File data_file;
@@ -160,6 +168,7 @@ int rtc_day = 0;
 long movements[NUM_DIRECTION_CATEGORIES];
 float frame[NUM_ROWS][NUM_COLS];
 bool background_building = true;
+TrackedBlob last_blobs[TRACKED_BLOB_BUFFER_SIZE];
 
 // Light
 bool light_state;
@@ -183,6 +192,7 @@ void setup() {
     * Main setup
     * Start all the sensors and do all the things
     */
+
     Log.Init(LOGGER_LEVEL, SERIAL_BAUD);
     Wire.begin(D2, D3);
     Log.Info("NodeMLX Starting...");
@@ -226,7 +236,26 @@ void start_thermal_flow() {
     timer.setInterval(THERMAL_CHECK_MOVEMENT_INTERVAL, print_new_movements);
     timer.setTimeout(BACKGROUND_CHECK_INTERVAL, check_background);
 
+    tracker.set_tracking_start_callback(handle_tracked_start);
+    tracker.set_tracking_end_callback(handle_tracked_end);
     Log.Debug("Thermal flow started.");
+}
+
+void handle_tracked_start(TrackedBlob blob) {
+    Log.Info(
+        "%c{\"id\":\"thermal\",\"type\":\"start\",\"t_id\":%d,\"size\":%d,\"start_x\":%d,\"start_y\":%d,\"temp\":%d,"
+        "\"w\":%d,\"h\":%d}%c",
+        PACKET_START, blob.id, blob.max_size, int(blob.start_pos[X]), int(blob.start_pos[Y]),
+        int(blob._blob.average_temperature * 100), blob.max_width, blob.max_height, PACKET_STOP);
+}
+
+void handle_tracked_end(TrackedBlob blob) {
+    Log.Info(
+        "%c{\"id\":\"thermal\",\"type\":\"end\",\"t_id\":%d,\"av_diff\":%d,\"max_diff\":%d,\"time\":%d,\"frames\":%d,"
+        "\"size\":%d,\"travel\":%d,\"temp\":%d,\"w\":%d,\"h\":%d}%c",
+        PACKET_START, blob.id, int(blob.average_difference), int(blob.max_difference), blob.event_duration,
+        blob.times_updated, blob.max_size, int(blob.travel[X] * 100), int(blob._blob.average_temperature * 100),
+        blob.max_width, blob.max_height, PACKET_STOP);
 }
 
 void process_new_frame() {
@@ -237,10 +266,10 @@ void process_new_frame() {
 
     long start_time = millis();
     thermal_flow.get_temperatures(frame, true);
-    tracker.process_frame(frame);
+    tracker.update(frame);
     long process_time = millis() - start_time;
 
-    Log.Debug("Blobs in frame: %d\tprocess time %l ms", tracker.get_num_last_blobs(), process_time);
+    Log.Debug("Blobs in frame: %d\tprocess time %l ms", tracker.num_last_blobs, process_time);
 
     print_frame();
 }
@@ -251,12 +280,12 @@ void print_new_movements() {
     */
     if (tracker.has_new_movements()) {
         tracker.get_movements(movements);
-        int num_blobs = tracker.get_num_last_blobs();
+        int num_blobs = tracker.num_last_blobs;
 
         Log.Debug(
             "%c{\"id\":\"thermal\",\"left\":%l,\"right\":%l,\"zero\":%l,"
             "\"blobs\":%d}%c",
-            PACKET_START, movements[LEFT], movements[RIGHT], movements[NO_DIRECTION], num_blobs, PACKET_END);
+            PACKET_START, movements[LEFT], movements[RIGHT], movements[NO_DIRECTION], num_blobs, PACKET_STOP);
     }
 }
 
@@ -267,7 +296,7 @@ void check_background() {
     * of the sensor.
     */
 
-    if (tracker.finished_building_background()) {
+    if (tracker.is_background_finished()) {
         Log.Info(
             "Thermal background finished building.;\tThermal flow detection "
             "started.");
@@ -293,6 +322,14 @@ void print_frame() {
         }
         Serial.println();
     }
+}
+
+void print_tracked_blob(TrackedBlob blob) {
+    Log.Info(
+        "%c{\"id\":\"thermal\",\"duration\":%l,\"start\":(%d,%d),\"travel\":(%d,%d),\"frames\":%d,\"distance\":%d,"
+        "\"size\":%d}%c",
+        PACKET_START, blob.event_duration, blob.start_pos[0], blob.start_pos[1], blob.travel[0], blob.travel[1],
+        blob.times_updated, int(blob.average_difference), blob._blob.get_size(), PACKET_STOP);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -688,42 +725,85 @@ void handle_root() {
     char temp[100];
 
     String body = "<table style=\"width:50%\">";
-
     get_datetime(temp);
     body += "<tr><th>Last update</th><td>";
-    body += temp;
-    body += "</td></tr>";
-    body += "<tr><th>Thermal left</th><td>";
-    body += tracker.movements[LEFT];
-    body += "</td></tr>";
-    body += "<tr><th>Thermal right</th><td>";
-    body += tracker.movements[RIGHT];
-    body += "</td></tr>";
-    body += "<tr><th>Thermal up</th><td>";
-    body += tracker.movements[UP];
-    body += "</td></tr>";
-    body += "<tr><th>Thermal down</th><td>";
-    body += tracker.movements[DOWN];
-    body += "</td></tr>";
-    body += "<tr><th>Thermal none</th><td>";
-    body += tracker.movements[NO_DIRECTION];
-    body += "</td></tr>";
-    body += "<tr><th>PIR Count</th><td>";
-    body += motion.num_detections;
-    body += "</td></tr>";
-    body += "<tr><th>Light state</th><td>";
-    sprintf(temp, "%s", light_state ? "ON" : "OFF");
     body += temp;
     body += "</td></tr>";
     dtostrf(thermal_flow.get_ambient_temperature(), 4, 2, temp);
     body += "<tr><th>Ambient Temperature</th><td>";
     body += temp;
-    body += " °C</td></tr>";
-    body += "<hr><a href=\"live\">Live feed</a>";
-    body += "<hr><a href=\"average\">Averages</a>";
-    body += "<hr><a href=\"variance\">Variances</a>";
-    body += "<hr><a href=\"diff\">Difference</a>";
-    body += "<hr><a href=\"active\">Active Pixels</a>";
+    body += " °C</td></tr></table>";
+
+    body += "<hr><table style =\"width:50%\"><tr><th>Tracking Variables</th><th>Var</th><th></th></tr><tr>";
+    body += "<td>Min blob size</td><td>min_blob</td><td>";
+    body += tracker.min_blob_size;
+    body += "</td></tr>";
+
+    body += "<td>Running average frames</td><td>avg_size</td><td>";
+    body += tracker.running_average_size;
+    body += "</td></tr>";
+
+    body += "<td>Max difference threshold</td><td>max_diff</td><td>";
+    body += tracker.max_difference_threshold;
+    body += "</td></tr>";
+
+    body += "<td>Min temp differential</td><td>min_t_diff</td><td>";
+    dtostrf(tracker.minimum_temperature_differential, 4, 2, temp);
+    body += temp;
+    body += "</td></tr>";
+
+    body += "<td>Active pixel variance scalar</td><td>ap_scalar</td><td>";
+    dtostrf(tracker.active_pixel_variance_scalar, 4, 2, temp);
+    body += temp;
+    body += "</td></tr></table>";
+
+    body += "<hr><table style=\"width:50%\"><th>Blob tracking</th><th>Var</th><th></th></tr><tr>";
+    body += "<td>Position penalty</td><td>pen_pos</td><td>";
+    dtostrf(TrackedBlob::position_penalty, 4, 2, temp);
+    body += temp;
+    body += "</td></tr>";
+    body += "<td>Area penalty</td><td>pen_area</td><td>";
+    dtostrf(TrackedBlob::area_penalty, 4, 2, temp);
+    body += temp;
+    body += "</td></tr>";
+    body += "<td>Aspect Ratio penalty</td><td>pen_aratio</td><td>";
+    dtostrf(TrackedBlob::aspect_ratio_penalty, 4, 2, temp);
+    body += temp;
+    body += "</td></tr>";
+    body += "<td>Direction penalty</td><td>pen_dir</td><td>";
+    dtostrf(TrackedBlob::direction_penalty, 4, 2, temp);
+    body += temp;
+    body += "</td></tr>";
+    body += "<td>Temperature penalty</td><td>pen_temp</td><td>";
+    dtostrf(TrackedBlob::temperature_penalty, 4, 2, temp);
+    body += temp;
+    body += "</td></tr></table>";
+
+    body += NAV_TABLE;
+
+    for (int i = 0; i < server.args(); i++) {
+        if (server.argName(i) == "min_blob") {
+            tracker.min_blob_size = server.arg(i).toInt();
+        } else if (server.argName(i) == "avg_size") {
+            tracker.running_average_size = server.arg(i).toInt();
+        } else if (server.argName(i) == "max_diff") {
+            tracker.max_difference_threshold = server.arg(i).toInt();
+        } else if (server.argName(i) == "min_t_diff") {
+            tracker.minimum_temperature_differential = server.arg(i).toFloat();
+        } else if (server.argName(i) == "ap_scalar") {
+            tracker.active_pixel_variance_scalar = server.arg(i).toFloat();
+        } else if (server.argName(i) == "pen_pos") {
+            TrackedBlob::position_penalty = server.arg(i).toFloat();
+        } else if (server.argName(i) == "pen_area") {
+            TrackedBlob::area_penalty = server.arg(i).toFloat();
+        } else if (server.argName(i) == "pen_aratio") {
+            TrackedBlob::aspect_ratio_penalty = server.arg(i).toFloat();
+        } else if (server.argName(i) == "pen_dir") {
+            TrackedBlob::direction_penalty = server.arg(i).toFloat();
+        } else if (server.argName(i) == "pen_temp") {
+            TrackedBlob::temperature_penalty = server.arg(i).toFloat();
+        }
+    }
 
     server.send(200, "text/html", header + body + footer);
 }
@@ -777,7 +857,8 @@ void handle_active() {
 
             float temperature_difference = absolute(average - temp);
 
-            if (temperature_difference > (variance * 3) && temperature_difference > MINIMUM_TEMPERATURE_DIFFERENTIAL) {
+            if (temperature_difference > (variance * 3) &&
+                temperature_difference > tracker.minimum_temperature_differential) {
                 active[i][j] = 1;
             } else {
                 active[i][j] = 0;

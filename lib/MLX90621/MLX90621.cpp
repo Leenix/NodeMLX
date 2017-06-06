@@ -25,6 +25,8 @@ void MLX90621::initialise(int refresh_rate) {
     * @param refresh_rate Refresh rate of the sensor in frames per second. {0 (0.5), 1, 2, 4, 8, 16, 32}
     */
 
+    Wire.begin();
+
     // 7.1 - The initialisation process must start at least 5ms after POR release
     delay(5);
     _refresh_rate = refresh_rate;
@@ -47,6 +49,8 @@ void MLX90621::read_EEPROM() {
     * Read in sensor's EEPROM into MCU RAM for fast retrieval
     * The EEPROM contains the compensation factors needed for temperature measurement
     */
+
+    Wire.setClock(EEPROM_I2C_CLOCK);
 
     // Read in blocks of 32 bytes to accomodate Wire library
     for (int j = 0; j < EEPROM_SIZE; j += PACKET_SIZE) {
@@ -128,6 +132,18 @@ void MLX90621::set_configuration() {
             break;
         case 32:
             Hz_LSB = 0b00111001;
+            break;
+        case 64:
+            Hz_LSB = 0b00111000;
+            break;
+        case 128:
+            Hz_LSB = 0b00110111;
+            break;
+        case 256:
+            Hz_LSB = 0b00110110;
+            break;
+        case 512:
+            Hz_LSB = 0b00110101;
             break;
         default:  // 1 Hz
             Hz_LSB = 0b00111110;
@@ -407,6 +423,8 @@ void MLX90621::get_IR(int ir_buffer[]) {
     *
     * @param ir_buffer Buffer to store the data. Must be at least NUM_PIXELS wide.
     */
+
+    Wire.setClock(I2C_CLOCK_SPEED);
 
     // Read in blocks of 32 bytes to overcome Wire buffer limit
     for (int j = 0; j < NUM_PIXELS; j += (PACKET_SIZE / 2)) {

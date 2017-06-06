@@ -15,9 +15,13 @@
 
 // Libraries to be included
 #include <Arduino.h>
-#include <Wire.h>
+#include "Wire.h"
 
-const byte PACKET_SIZE = 32;
+const static char* MLXLIB_VERSION = "20170606";
+
+const int PACKET_SIZE = BUFFER_LENGTH;
+const long EEPROM_I2C_CLOCK = 400000;
+const long I2C_CLOCK_SPEED = 400000;
 
 const int EEPROM_SIZE = 256;
 const uint8_t NUM_PIXELS = 64;
@@ -251,7 +255,7 @@ class MLX90621 {
     *
     * @param ser The serial interface to print the temperatures to.
     */
-    void print_temperatures(HardwareSerial &ser);
+    void print_temperatures(HardwareSerial& ser);
 
     /**
     * Read the sensor and calculate the ambient temperature.

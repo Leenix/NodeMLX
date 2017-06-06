@@ -43,10 +43,7 @@ void TrackedBlob::clear() {
     predicted_position[Y] = -1;
     travel[X] = 0;
     travel[Y] = 0;
-    total_travel[X] = 0;
-    total_travel[Y] = 0;
     max_size = 0;
-    max_difference = 0;
     reset_updated_status();
 }
 
@@ -66,11 +63,6 @@ void TrackedBlob::set(Blob blob) {
     start_time = millis();
 }
 
-void TrackedBlob::set(Blob blob, unsigned int _id){
-    id = _id;
-    set(blob);
-}
-
 bool TrackedBlob::is_active() {
     /**
     * Determine if the tracked blob is actually tracking anything
@@ -79,19 +71,6 @@ bool TrackedBlob::is_active() {
     return _blob.is_active();
 }
 
-void TrackedBlob::update_blob(Blob blob, float difference){
-
-    // Calculate average difference
-    average_difference *= times_updated;
-    average_difference += difference;
-    average_difference /= (times_updated + 1);
-
-    if (difference > max_difference){
-        max_difference = difference;
-    }
-
-    update_blob(blob);
-}
 void TrackedBlob::update_blob(Blob blob) {
     /**
     * Update the tracked blob
@@ -110,28 +89,16 @@ void TrackedBlob::update_blob(Blob blob) {
     travel[X] += movement[X];
     travel[Y] += movement[Y];
 
-    total_travel[X] += abs(movement[X]);
-    total_travel[Y] += abs(movement[Y]);
-
     copy_blob(blob);
 
     event_duration = millis() - start_time;
+    has_updated = true;
+    times_updated++;
 
     int size = blob.get_size();
     if (size > max_size) {
         max_size = size;
     }
-
-    if(blob.width > max_width){
-        max_width = blob.width;
-    }
-
-    if(blob.height > max_height){
-        max_height = blob.height;
-    }
-
-    has_updated = true;
-    times_updated++;
 }
 
 void TrackedBlob::reset_updated_status() {
@@ -151,25 +118,11 @@ void TrackedBlob::copy(TrackedBlob tblob) {
     */
     copy_blob(tblob._blob);
 
-    id = tblob.id;
     predicted_position[X] = tblob.predicted_position[X];
     predicted_position[Y] = tblob.predicted_position[Y];
     travel[Y] = tblob.travel[Y];
     travel[X] = tblob.travel[X];
-    total_travel[Y] = tblob.total_travel[Y];
-    total_travel[X] = tblob.total_travel[X];
-    start_pos[X] = tblob.start_pos[X];
-    start_pos[Y] = tblob.start_pos[Y];
-    start_time = tblob.start_time;
     has_updated = tblob.has_updated;
-    event_duration = tblob.event_duration;
-    has_updated = tblob.has_updated;
-    times_updated = tblob.times_updated;
-    average_difference = tblob.average_difference;
-    max_difference = tblob.max_difference;
-    max_size = tblob.max_size;
-    max_width = tblob.max_width;
-    max_height = tblob.max_height;
 }
 
 float TrackedBlob::get_travel(int axis) {
