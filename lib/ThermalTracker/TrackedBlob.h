@@ -35,7 +35,10 @@ class TrackedBlob {
     * @param blob New blob state used to update the tracked blob
     */
     void update_blob(Blob blob);
-    void update_blob(Blob blob, float difference);
+
+    void update_movements(Blob blob);
+    void update_geometry(Blob blob);
+    void update_differences(Blob blob);
 
     /**
     * Get the net travel difference of the tracked blob as it moves between frames
@@ -57,6 +60,7 @@ class TrackedBlob {
     bool is_active();
 
     float get_difference(Blob other_blob);
+    float get_edge_penalty(float position);
     float calculate_position_difference(Blob other_blob);
     float calculate_area_difference(Blob other_blob);
     float calculate_temperature_difference(Blob other_blob);
@@ -113,6 +117,19 @@ class TrackedBlob {
     int max_width;
     int max_height;
     unsigned int id;
+
+    float position_difference;
+    float direction_difference;
+    float temperature_difference;
+    float aspect_ratio_difference;
+    float area_difference;
+
+    float average_position_difference;
+    float average_direction_difference;
+    float average_temperature_difference;
+    float average_aspect_ratio_difference;
+    float average_area_difference;
+    float edge_penalty;
 };
 
 #endif

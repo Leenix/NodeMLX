@@ -47,6 +47,15 @@ void TrackedBlob::clear() {
     total_travel[Y] = 0;
     max_size = 0;
     max_difference = 0;
+    average_difference = 0;
+    max_width = 0;
+    max_height = 0;
+    average_position_difference = 0;
+    average_aspect_ratio_difference = 0;
+    average_area_difference = 0;
+    average_direction_difference = 0;
+    average_temperature_difference = 0;
+
     reset_updated_status();
 }
 
@@ -64,9 +73,10 @@ void TrackedBlob::set(Blob blob) {
     times_updated = 0;
     max_size = blob.get_size();
     start_time = millis();
+    max_width = blob.width;
+    max_height = blob.height;
 }
-
-void TrackedBlob::set(Blob blob, unsigned int _id){
+void TrackedBlob::set(Blob blob, unsigned int _id) {
     id = _id;
     set(blob);
 }
@@ -79,25 +89,28 @@ bool TrackedBlob::is_active() {
     return _blob.is_active();
 }
 
-void TrackedBlob::update_blob(Blob blob, float difference){
-
-    // Calculate average difference
-    average_difference *= times_updated;
-    average_difference += difference;
-    average_difference /= (times_updated + 1);
-
-    if (difference > max_difference){
-        max_difference = difference;
-    }
-
-    update_blob(blob);
-}
 void TrackedBlob::update_blob(Blob blob) {
     /**
     * Update the tracked blob
     * Movements between the old and new blob states are recorded.
     * The next predicted position of the next blob is also calculated for future calculations
     * @param blob New blob state used to update the tracked blob
+    */
+
+    event_duration = millis() - start_time;
+    update_differences(blob);
+
+    update_movements(blob);
+    copy_blob(blob);
+    update_geometry(blob);
+
+    has_updated = true;
+    times_updated++;
+}
+
+void TrackedBlob::update_movements(Blob blob) {
+    /**
+    * Update the movement and travel variables from the last blob update
     */
     float movement[2];
 
@@ -112,26 +125,55 @@ void TrackedBlob::update_blob(Blob blob) {
 
     total_travel[X] += abs(movement[X]);
     total_travel[Y] += abs(movement[Y]);
+}
 
-    copy_blob(blob);
-
-    event_duration = millis() - start_time;
-
+void TrackedBlob::update_geometry(Blob blob) {
+    /**
+    * Update the geometry variables that need to change from the last blob update
+    */
     int size = blob.get_size();
     if (size > max_size) {
         max_size = size;
     }
 
-    if(blob.width > max_width){
+    if (blob.width > max_width) {
         max_width = blob.width;
     }
 
-    if(blob.height > max_height){
+    if (blob.height > max_height) {
         max_height = blob.height;
     }
+}
 
-    has_updated = true;
-    times_updated++;
+void TrackedBlob::update_differences(Blob blob) {
+    /**
+    * Update the difference factors from the last blob update
+    * @return None
+    */
+    float difference = get_difference(blob);
+
+    // Calculate average difference
+    average_difference *= times_updated;
+    average_difference += difference;
+    average_difference /= (times_updated + 1);
+
+    if (difference > max_difference) {
+        max_difference = difference;
+    }
+
+    average_area_difference = (average_area_difference * times_updated + area_difference) / (times_updated + 1);
+
+    average_position_difference =
+        (average_position_difference * times_updated + position_difference) / (times_updated + 1);
+
+    average_aspect_ratio_difference =
+        (average_aspect_ratio_difference * times_updated + aspect_ratio_difference) / (times_updated + 1);
+
+    average_direction_difference =
+        (average_direction_difference * times_updated + direction_difference) / (times_updated + 1);
+
+    average_temperature_difference =
+        (average_temperature_difference * times_updated + temperature_difference) / (times_updated + 1);
 }
 
 void TrackedBlob::reset_updated_status() {
@@ -170,6 +212,11 @@ void TrackedBlob::copy(TrackedBlob tblob) {
     max_size = tblob.max_size;
     max_width = tblob.max_width;
     max_height = tblob.max_height;
+    average_area_difference = tblob.average_area_difference;
+    average_position_difference = tblob.average_position_difference;
+    average_aspect_ratio_difference = tblob.average_aspect_ratio_difference;
+    average_direction_difference = tblob.average_direction_difference;
+    average_temperature_difference = tblob.average_temperature_difference;
 }
 
 float TrackedBlob::get_travel(int axis) {
@@ -200,22 +247,31 @@ float TrackedBlob::get_difference(Blob other_blob) {
     */
 
     float difference_factor = 0.0;
-    float position = _blob.centroid[X];
-    float edge_penalty = (1 - absolute((frame_width / 2 - position)) / (frame_width / 2));
 
-    difference_factor += calculate_position_difference(other_blob);
-    difference_factor += calculate_area_difference(other_blob);
-    difference_factor += calculate_aspect_ratio_difference(other_blob);
+    edge_penalty = get_edge_penalty(other_blob.centroid[X]);
+    position_difference = calculate_position_difference(other_blob);
+    area_difference = calculate_area_difference(other_blob);
+    aspect_ratio_difference = calculate_aspect_ratio_difference(other_blob);
+    temperature_difference = calculate_temperature_difference(other_blob);
+    direction_difference = calculate_direction_difference(other_blob);
 
     // Soften the difference if the blob is touching the sides of the frame
-    if (is_touching_side()) {
-        difference_factor *= edge_penalty;
-    }
-
-    difference_factor += calculate_temperature_difference(other_blob);
-    difference_factor += calculate_direction_difference(other_blob);
+    // Blobs close to the centre do not get much leeway
+    // Blobs close to the edges are probably still forming, so the penalties are softened a bunch
+    difference_factor =
+        position_difference + area_difference + aspect_ratio_difference + temperature_difference + direction_difference;
 
     return difference_factor;
+}
+
+float TrackedBlob::get_edge_penalty(float position) {
+    float edge_penalty = 1;
+
+    if (is_touching_side()) {
+        edge_penalty = (1 - absolute((frame_width / 2 - position)) / (frame_width / 2));
+    }
+
+    return edge_penalty;
 }
 
 void TrackedBlob::copy_blob(Blob blob) {
@@ -245,20 +301,21 @@ float TrackedBlob::calculate_position_difference(Blob other_blob) {
         difference_factor += absolute(_blob.centroid[X] - other_blob.centroid[X]) * position_penalty;
         difference_factor += absolute(_blob.centroid[Y] - other_blob.centroid[Y]) * position_penalty;
     }
-    return difference_factor;
+    return difference_factor * edge_penalty;
 }
 
 float TrackedBlob::calculate_area_difference(Blob other_blob) {
-    float difference = absolute(_blob.num_pixels - other_blob.num_pixels) * area_penalty;
-    return difference;
+    float difference = absolute(_blob.get_size() - other_blob.get_size()) * area_penalty;
+    return difference * edge_penalty;
 }
 
 float TrackedBlob::calculate_temperature_difference(Blob other_blob) {
-    return absolute(_blob.average_temperature - other_blob.average_temperature) * temperature_penalty;
+    return (absolute(_blob.average_temperature - other_blob.average_temperature) * temperature_penalty);
 }
 
 float TrackedBlob::calculate_aspect_ratio_difference(Blob other_blob) {
-    absolute(_blob.aspect_ratio - other_blob.aspect_ratio) * aspect_ratio_penalty;
+    float difference = (absolute(_blob.aspect_ratio - other_blob.aspect_ratio) * aspect_ratio_penalty);
+    return difference * edge_penalty;
 }
 
 float TrackedBlob::calculate_direction_difference(Blob other_blob) {
@@ -275,7 +332,7 @@ float TrackedBlob::calculate_direction_difference(Blob other_blob) {
     int latest_direction = predicted_position[X] - _blob.centroid[X];
 
     // Check if that direction matches the overall travel of the blob
-    if ((latest_direction > 0) != (travel > 0)) {
+    if (is_touching_side() && (latest_direction >= 0) != (travel >= 0)) {
         difference += direction_penalty;
     }
 

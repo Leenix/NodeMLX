@@ -35,6 +35,7 @@ const long SERIAL_BAUD = 115200;
 const int LOGGER_LEVEL = LOG_LEVEL_INFOS;
 const char PACKET_START = '#';
 const char PACKET_STOP = '$';
+const bool DISPLAY_TRACKED = true;
 
 // Thermal flow
 const int REFRESH_RATE = 32;
@@ -59,8 +60,8 @@ const long LIGHT_CHECK_INTERVAL = 2000;
 const int LIGHT_ON_THRESHOLD = 500;
 
 // WiFi
-const char* WIFI_SSID = "Handy";
-const char* WIFI_PASSWORD = "things11";
+const char* WIFI_SSID = "SecretTunnel";
+const char* WIFI_PASSWORD = "goodPuzzle";
 const int WIFI_DEFAULT_TIMEOUT = 2000;
 const long WIFI_RECONNECT_INTERVAL = 10000;
 
@@ -168,7 +169,9 @@ int rtc_day = 0;
 long movements[NUM_DIRECTION_CATEGORIES];
 float frame[NUM_ROWS][NUM_COLS];
 bool background_building = true;
+
 TrackedBlob last_blobs[TRACKED_BLOB_BUFFER_SIZE];
+int tracked_blob_index;
 
 // Light
 bool light_state;
@@ -256,6 +259,15 @@ void handle_tracked_end(TrackedBlob blob) {
         PACKET_START, blob.id, int(blob.average_difference), int(blob.max_difference), blob.event_duration,
         blob.times_updated, blob.max_size, int(blob.travel[X] * 100), int(blob._blob.average_temperature * 100),
         blob.max_width, blob.max_height, PACKET_STOP);
+
+    // Keep a list of the most recent blobs if the option is enabled
+    if (DISPLAY_TRACKED) {
+        for (int i = TRACKED_BLOB_BUFFER_SIZE - 1; i > 0; i--) {
+            // Cycle through the tracked blobs so the most recent is first
+            last_blobs[i].copy(last_blobs[i - 1]);
+        }
+        last_blobs[0].copy(blob);
+    }
 }
 
 void process_new_frame() {
@@ -717,72 +729,44 @@ void handle_root() {
     /**
     * Generate the HTML for the basic web page.
     * The root page just displays basic information at this stage
-    * TODO - Add a config menu to the web server to change tracking variables on the fly
     */
 
-    String header = "<html><head><title> NodeMLX Info</title><meta http-equiv=\"refresh\" content=\"5\"/></head><body>";
+    String header =
+        "<html><head><title> NodeMLX Info</title><style>table, th, td {border: 1px solid black;}</style><meta "
+        "http-equiv=\"refresh\" content=\"1\"/></head><body>";
     String footer = "</body></html>";
-    char temp[100];
 
-    String body = "<table style=\"width:50%\">";
-    get_datetime(temp);
-    body += "<tr><th>Last update</th><td>";
-    body += temp;
-    body += "</td></tr>";
-    dtostrf(thermal_flow.get_ambient_temperature(), 4, 2, temp);
-    body += "<tr><th>Ambient Temperature</th><td>";
-    body += temp;
-    body += " °C</td></tr></table>";
+    String body = "<h1>NodeMLX Thermal Tracker - Ver:";
+    body += NODE_MLX_VERSION;
+    body += "</h1>";
 
-    body += "<hr><table style =\"width:50%\"><tr><th>Tracking Variables</th><th>Var</th><th></th></tr><tr>";
-    body += "<td>Min blob size</td><td>min_blob</td><td>";
-    body += tracker.min_blob_size;
-    body += "</td></tr>";
-
-    body += "<td>Running average frames</td><td>avg_size</td><td>";
-    body += tracker.running_average_size;
-    body += "</td></tr>";
-
-    body += "<td>Max difference threshold</td><td>max_diff</td><td>";
-    body += tracker.max_difference_threshold;
-    body += "</td></tr>";
-
-    body += "<td>Min temp differential</td><td>min_t_diff</td><td>";
-    dtostrf(tracker.minimum_temperature_differential, 4, 2, temp);
-    body += temp;
-    body += "</td></tr>";
-
-    body += "<td>Active pixel variance scalar</td><td>ap_scalar</td><td>";
-    dtostrf(tracker.active_pixel_variance_scalar, 4, 2, temp);
-    body += temp;
-    body += "</td></tr></table>";
-
-    body += "<hr><table style=\"width:50%\"><th>Blob tracking</th><th>Var</th><th></th></tr><tr>";
-    body += "<td>Position penalty</td><td>pen_pos</td><td>";
-    dtostrf(TrackedBlob::position_penalty, 4, 2, temp);
-    body += temp;
-    body += "</td></tr>";
-    body += "<td>Area penalty</td><td>pen_area</td><td>";
-    dtostrf(TrackedBlob::area_penalty, 4, 2, temp);
-    body += temp;
-    body += "</td></tr>";
-    body += "<td>Aspect Ratio penalty</td><td>pen_aratio</td><td>";
-    dtostrf(TrackedBlob::aspect_ratio_penalty, 4, 2, temp);
-    body += temp;
-    body += "</td></tr>";
-    body += "<td>Direction penalty</td><td>pen_dir</td><td>";
-    dtostrf(TrackedBlob::direction_penalty, 4, 2, temp);
-    body += temp;
-    body += "</td></tr>";
-    body += "<td>Temperature penalty</td><td>pen_temp</td><td>";
-    dtostrf(TrackedBlob::temperature_penalty, 4, 2, temp);
-    body += temp;
-    body += "</td></tr></table>";
-
+    body += "<h2> Basic Info</h2>";
+    body += generate_basic_info_table();
+    body += "<h2> Tracking Variables</h2>";
+    body += generate_tracking_info_table();
+    body += "<h2>Inter-frame Track Weightings</h2>";
+    body += generate_penalty_table();
+    body += "<h2> Recent Tracked Blobs</h2>";
+    body += generate_last_blobs_table();
+    body += "<hr>";
     body += NAV_TABLE;
 
+    handle_server_args();
+
+    server.send(200, "text/html", header + body + footer);
+}
+
+void handle_server_args() {
+    /**
+    * Change variables based on arguments passed to the server.
+    */
+
     for (int i = 0; i < server.args(); i++) {
-        if (server.argName(i) == "min_blob") {
+        if (server.argName(i) == "min") {
+            min_display_temperature = server.arg(i).toFloat();
+        } else if (server.argName(i) == "max") {
+            max_display_temperature = server.arg(i).toFloat();
+        } else if (server.argName(i) == "min_blob") {
             tracker.min_blob_size = server.arg(i).toInt();
         } else if (server.argName(i) == "avg_size") {
             tracker.running_average_size = server.arg(i).toInt();
@@ -804,8 +788,124 @@ void handle_root() {
             TrackedBlob::temperature_penalty = server.arg(i).toFloat();
         }
     }
+}
 
-    server.send(200, "text/html", header + body + footer);
+String generate_basic_info_table() {
+    char temp[30];
+    String output = "<table style=\"width:50%\">";
+    get_datetime(temp);
+    output += "<tr><th>Last update</th><td>";
+    output += temp;
+    output += "</td></tr>";
+    dtostrf(thermal_flow.get_ambient_temperature(), 4, 2, temp);
+    output += "<tr><th>Ambient Temperature</th><td>";
+    output += temp;
+    output += " °C</td></tr></table>";
+
+    return output;
+}
+
+String generate_tracking_info_table() {
+    char temp[10];
+    String output =
+        "<hr><table style =\"width:50%\"><tr><th>Tracking Variables</th><th>Var Name</th><th>Value</th></tr><tr>";
+    output += "<td>Min blob size</td><td>min_blob</td><td>";
+    output += tracker.min_blob_size;
+    output += "</td></tr>";
+
+    output += "<td>Running average frames</td><td>avg_size</td><td>";
+    output += tracker.running_average_size;
+    output += "</td></tr>";
+
+    output += "<td>Max difference threshold</td><td>max_diff</td><td>";
+    output += tracker.max_difference_threshold;
+    output += "</td></tr>";
+
+    output += "<td>Min temp differential</td><td>min_t_diff</td><td>";
+    dtostrf(tracker.minimum_temperature_differential, 4, 2, temp);
+    output += temp;
+    output += "</td></tr>";
+
+    output += "<td>Active pixel variance scalar</td><td>ap_scalar</td><td>";
+    dtostrf(tracker.active_pixel_variance_scalar, 4, 2, temp);
+    output += temp;
+    output += "</td></tr></table>";
+
+    return output;
+}
+
+String generate_penalty_table() {
+    char temp[10];
+    String output = "<hr><table style=\"width:50%\"><th>Blob tracking</th><th>Var Name</th><th>Value</th></tr><tr>";
+    output += "<td>Position penalty</td><td>pen_pos</td><td>";
+    dtostrf(TrackedBlob::position_penalty, 4, 2, temp);
+    output += temp;
+    output += "</td></tr>";
+    output += "<td>Area penalty</td><td>pen_area</td><td>";
+    dtostrf(TrackedBlob::area_penalty, 4, 2, temp);
+    output += temp;
+    output += "</td></tr>";
+    output += "<td>Aspect Ratio penalty</td><td>pen_aratio</td><td>";
+    dtostrf(TrackedBlob::aspect_ratio_penalty, 4, 2, temp);
+    output += temp;
+    output += "</td></tr>";
+    output += "<td>Direction penalty</td><td>pen_dir</td><td>";
+    dtostrf(TrackedBlob::direction_penalty, 4, 2, temp);
+    output += temp;
+    output += "</td></tr>";
+    output += "<td>Temperature penalty</td><td>pen_temp</td><td>";
+    dtostrf(TrackedBlob::temperature_penalty, 4, 2, temp);
+    output += temp;
+    output += "</td></tr></table>";
+
+    return output;
+}
+
+String generate_last_blobs_table() {
+    char temp[10];
+    String output =
+        "<hr><table style=\"width:80%\"><tr><th>Track id</th><th>Tracked frames</th><th>Max blob "
+        "size</th><th>Travel</th><th>Width</th><th>Height</th><th>Temperature</th><th>A diff</th><th>P diff</th><th>AR "
+        "diff</th><th>D diff</th><th>T diff</th></tr>";
+
+    for (int i = 0; i < TRACKED_BLOB_BUFFER_SIZE; i++) {
+        output += "<tr><td>";
+        output += last_blobs[i].id;
+        output += "</td><td>";
+        output += last_blobs[i].times_updated;
+        output += "</td><td>";
+        output += last_blobs[i].max_size;
+        output += "</td><td>";
+        dtostrf(last_blobs[i].travel[X], 4, 2, temp);
+        output += temp;
+        output += "</td><td>";
+        output += last_blobs[i].max_width;
+        output += "</td><td>";
+        output += last_blobs[i].max_height;
+        output += "</td><td>";
+        dtostrf(last_blobs[i]._blob.average_temperature, 4, 2, temp);
+        output += temp;
+        output += "</td><td>";
+        dtostrf(last_blobs[i].average_area_difference, 4, 2, temp);
+        output += temp;
+        output += "</td><td>";
+        dtostrf(last_blobs[i].average_position_difference, 4, 2, temp);
+        output += temp;
+        output += "</td><td>";
+        dtostrf(last_blobs[i].average_aspect_ratio_difference, 4, 2, temp);
+        output += temp;
+        output += "</td><td>";
+        dtostrf(last_blobs[i].average_direction_difference, 4, 2, temp);
+        output += temp;
+        output += "</td><td>";
+        dtostrf(last_blobs[i].average_temperature_difference, 4, 2, temp);
+        output += temp;
+        output += "</td></tr>";
+    }
+
+    output += "</table>";
+
+    return output;
 }
 
 void handle_live() {
@@ -876,19 +976,9 @@ String generate_live_view(float values[4][16]) {
     * The live page contains a false-colour temperature map of the sensor output
     */
 
-    for (int i = 0; i < server.args(); i++) {
-        if (server.argName(i) == "min") {
-            min_display_temperature = server.arg(i).toFloat();
-        }
-
-        else if (server.argName(i) == "max") {
-            max_display_temperature = server.arg(i).toFloat();
-        }
-    }
-
     String page = "";
     page += generate_colour_map(values);
-    page += "<html><head><title> NodeMLX Live Feed</title><meta http-equiv=\"refresh\" content=\"0.5\"/></head><body>";
+    page += "<html><head><title> NodeMLX Live Feed</title><meta http-equiv=\"refresh\" content=\"0.25\"/></head><body>";
     page += generate_temperature_table(values);
     page += "<hr><a href=\"\\\">Back</a></body></html>";
 

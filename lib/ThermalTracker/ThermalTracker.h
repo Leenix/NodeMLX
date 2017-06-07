@@ -91,8 +91,6 @@ class ThermalTracker {
     */
     void add_current_frame_to_background();
 
-    void update_tracking_configuration();
-
     ////////////////////////////////////////////////////////////////////////////////
     // Blob detection
 
@@ -295,13 +293,6 @@ class ThermalTracker {
     int max_difference_threshold;
     float minimum_temperature_differential;
     float active_pixel_variance_scalar;
-
-    // Tracking penalties
-    float tracking_position_penalty;
-    float tracking_area_penalty;
-    float tracking_aspect_ratio_penalty;
-    float tracking_direction_penalty;
-    float tracking_temperature_penalty;
 
     // Runtime variables
     int num_background_frames;

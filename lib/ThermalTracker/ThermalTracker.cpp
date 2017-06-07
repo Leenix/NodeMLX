@@ -17,13 +17,11 @@ ThermalTracker::ThermalTracker() {
     minimum_temperature_differential = DEFAULT_MIN_TEMPERATURE_DIFFERENTIAL;
     active_pixel_variance_scalar = DEFAULT_ACTIVE_PIXEL_VARIANCE_SCALAR;
 
-    tracking_position_penalty = DEFAULT_POSITION_PENALTY;
-    tracking_area_penalty = DEFAULT_AREA_PENALTY;
-    tracking_aspect_ratio_penalty = DEFAULT_ASPECT_RATIO_PENALTY;
-    tracking_direction_penalty = DEFAULT_DIRECTION_PENALTY;
-    tracking_temperature_penalty = DEFAULT_TEMPERATURE_PENALTY;
-
-    update_tracking_configuration();
+    TrackedBlob::position_penalty = DEFAULT_POSITION_PENALTY;
+    TrackedBlob::area_penalty = DEFAULT_AREA_PENALTY;
+    TrackedBlob::aspect_ratio_penalty = DEFAULT_ASPECT_RATIO_PENALTY;
+    TrackedBlob::direction_penalty = DEFAULT_DIRECTION_PENALTY;
+    TrackedBlob::temperature_penalty = DEFAULT_TEMPERATURE_PENALTY;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -330,7 +328,8 @@ int ThermalTracker::get_active_pixels(Pixel pixel_buffer[]) {
 
             float temperature_difference = absolute(average - temp);
 
-            if (temperature_difference > (variance * active_pixel_variance_scalar) && temperature_difference > minimum_temperature_differential) {
+            if (temperature_difference > (variance * active_pixel_variance_scalar) &&
+                temperature_difference > minimum_temperature_differential) {
                 pixel_buffer[num_active++].set(j, i, temp);
             }
         }
@@ -444,7 +443,7 @@ void ThermalTracker::update_tracked_blobs(Blob new_blobs[MAX_BLOBS], TrackedBlob
     float difference = get_lowest_difference(difference_matrix, indexes);
     while (difference < max_difference_threshold) {
         // Update the tracked blob
-        tracked_blobs[indexes[0]].update_blob(new_blobs[indexes[1]], difference);
+        tracked_blobs[indexes[0]].update_blob(new_blobs[indexes[1]]);
 
         // Remove the matched up rows and columns from the difference matrix so they cannot be matched again
         remove_difference_row_col(indexes[0], indexes[1], difference_matrix);
@@ -490,69 +489,69 @@ void ThermalTracker::sort_tracked_blobs(TrackedBlob tracked_blobs[]) {
 }
 
 void ThermalTracker::generate_difference_matrix(TrackedBlob tracked_blobs[MAX_BLOBS], Blob blobs[MAX_BLOBS],
-    float output[MAX_BLOBS][MAX_BLOBS]) {
-        /**
-        * Generate a matrix of the differences between the tracked blobs and blobs.
-        * @param tracked_blobs List containing the tracked blobs
-        * @param blobs List containing the new blobs from the frame
-        * @param output Matrix to store the difference values
-        */
+                                                float output[MAX_BLOBS][MAX_BLOBS]) {
+    /**
+    * Generate a matrix of the differences between the tracked blobs and blobs.
+    * @param tracked_blobs List containing the tracked blobs
+    * @param blobs List containing the new blobs from the frame
+    * @param output Matrix to store the difference values
+    */
 
-        for (int i = 0; i < MAX_BLOBS; i++) {
-            for (int j = 0; j < MAX_BLOBS; j++) {
-                if (blobs[j].is_active() && tracked_blobs[i].is_active()) {
-                    output[i][j] = tracked_blobs[i].get_difference(blobs[j]);
-                } else {
-                    output[i][j] = max_difference_threshold;
-                }
+    for (int i = 0; i < MAX_BLOBS; i++) {
+        for (int j = 0; j < MAX_BLOBS; j++) {
+            if (blobs[j].is_active() && tracked_blobs[i].is_active()) {
+                output[i][j] = tracked_blobs[i].get_difference(blobs[j]);
+            } else {
+                output[i][j] = max_difference_threshold;
             }
         }
     }
+}
 
 float ThermalTracker::get_lowest_difference(float difference_matrix[MAX_BLOBS][MAX_BLOBS], int indexes[2]) {
-        /**
-        * Get the index and value of the lowest difference in the difference matrix
-        * @param difference_matrix Matrix containing the difference values between the different tracked blobs and normal
-        * blobs.
-        * @param indexes The location of the lowest difference in the matrix.
-        */
-        float lowest = max_difference_threshold;
-        int x_index = -1;
-        int y_index = -1;
+    /**
+    * Get the index and value of the lowest difference in the difference matrix
+    * @param difference_matrix Matrix containing the difference values between the different tracked blobs and normal
+    * blobs.
+    * @param indexes The location of the lowest difference in the matrix.
+    */
+    float lowest = max_difference_threshold;
+    int x_index = -1;
+    int y_index = -1;
 
-        // Find the value and index of the lowest value in the matrix
-        for (int i = 0; i < MAX_BLOBS; i++) {
-            for (int j = 0; j < MAX_BLOBS; j++) {
-                float difference = difference_matrix[i][j];
-                if (difference < lowest && difference < max_difference_threshold) {
-                    lowest = difference;
-                    x_index = i;
-                    y_index = j;
-                }
+    // Find the value and index of the lowest value in the matrix
+    for (int i = 0; i < MAX_BLOBS; i++) {
+        for (int j = 0; j < MAX_BLOBS; j++) {
+            float difference = difference_matrix[i][j];
+            if (difference < lowest && difference < max_difference_threshold) {
+                lowest = difference;
+                x_index = i;
+                y_index = j;
             }
         }
-
-        indexes[0] = x_index;
-        indexes[1] = y_index;
-        return lowest;
     }
+
+    indexes[0] = x_index;
+    indexes[1] = y_index;
+    return lowest;
+}
 
 void ThermalTracker::remove_difference_row_col(int row, int col, float difference_matrix[MAX_BLOBS][MAX_BLOBS]) {
-        /**
-        * Remove a row and column from the difference matrix so it cannot be used in matching up blobs with tracked blobs.
-        * The entire row and column are marked with a difference of max_difference_threshold, which is far above the maximum
-        * difference
-        * threshold.
-        * You'd use this function after a match has been found between a blob and a tracked blob.
-        * @param row The row number (tracked blob index) to remove from the difference matrix
-        * @param col The coloumn number (blob index) to remove from the difference matrix
-        * @param difference_matrix A 2D matrix containing the combination of difference between tracked blobs and blobs
-        */
-        for (int i = 0; i < MAX_BLOBS; i++) {
-            difference_matrix[row][i] = max_difference_threshold;
-            difference_matrix[i][col] = max_difference_threshold;
-        }
+    /**
+    * Remove a row and column from the difference matrix so it cannot be used in matching up blobs with tracked blobs.
+    * The entire row and column are marked with a difference of max_difference_threshold, which is far above the maximum
+    * difference
+    * threshold.
+    * You'd use this function after a match has been found between a blob and a tracked blob.
+    * @param row The row number (tracked blob index) to remove from the difference matrix
+    * @param col The coloumn number (blob index) to remove from the difference matrix
+    * @param difference_matrix A 2D matrix containing the combination of difference between tracked blobs and blobs
+    */
+    for (int i = 0; i < MAX_BLOBS; i++) {
+        difference_matrix[row][i] = max_difference_threshold;
+        difference_matrix[i][col] = max_difference_threshold;
     }
+}
 
 void ThermalTracker::add_remaining_blobs_to_tracked(Blob new_blobs[MAX_BLOBS], TrackedBlob tracked_blobs[MAX_BLOBS]) {
     /**
@@ -569,6 +568,8 @@ void ThermalTracker::add_remaining_blobs_to_tracked(Blob new_blobs[MAX_BLOBS], T
     // AN: Can validate numbers here: num_updated_blobs == (new_blobs - num_unassigned_blobs)
 
     if (num_unassigned_blobs > 0) {
+        // Make sure the latest tracking weights are up to date
+
         int i = 0;
         while (num_unassigned_blobs > 0 && i < MAX_BLOBS) {
             if (new_blobs[i].is_active() && !new_blobs[i].is_assigned()) {
@@ -586,14 +587,6 @@ void ThermalTracker::add_remaining_blobs_to_tracked(Blob new_blobs[MAX_BLOBS], T
             i++;
         }
     }
-}
-
-void ThermalTracker::update_tracking_configuration() {
-    TrackedBlob::area_penalty = tracking_area_penalty;
-    TrackedBlob::position_penalty = tracking_position_penalty;
-    TrackedBlob::aspect_ratio_penalty = tracking_aspect_ratio_penalty;
-    TrackedBlob::temperature_penalty = tracking_temperature_penalty;
-    TrackedBlob::direction_penalty = tracking_direction_penalty;
 }
 
 int ThermalTracker::get_num_updated_blobs(TrackedBlob tracked_blobs[MAX_BLOBS]) {
@@ -665,7 +658,7 @@ void ThermalTracker::process_blob_movements(TrackedBlob blob) {
     if (tracking_end_callback) {
         (*tracking_end_callback)(blob);
     }
-    
+
     blob.id = 0;
 }
 
