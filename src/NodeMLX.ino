@@ -21,7 +21,7 @@
 ////////////////////////////////////////////////////////////////////////////////
 // Versioning
 const char* DEVICE_NAME = "NodeMLX";
-const char* NODE_MLX_VERSION = "20170606";
+const char* NODE_MLX_VERSION = "20170608";
 
 // Pins
 const byte BUTTON_PIN = D0;
@@ -60,8 +60,8 @@ const long LIGHT_CHECK_INTERVAL = 2000;
 const int LIGHT_ON_THRESHOLD = 500;
 
 // WiFi
-const char* WIFI_SSID = "SecretTunnel";
-const char* WIFI_PASSWORD = "goodPuzzle";
+const char* WIFI_SSID = "Handy";
+const char* WIFI_PASSWORD = "things11";
 const int WIFI_DEFAULT_TIMEOUT = 2000;
 const long WIFI_RECONNECT_INTERVAL = 10000;
 
@@ -185,6 +185,7 @@ MDNSResponder mdns;
 ESP8266WebServer server(SERVER_PORT);
 float min_display_temperature = DEFAULT_MIN_DISPLAY_TEMPERATURE;
 float max_display_temperature = DEFAULT_MAX_DISPLAY_TEMPERATURE;
+int connect_timer_id = -1;
 
 ////////////////////////////////////////////////////////////////////////////////
 // Main
@@ -205,12 +206,12 @@ void setup() {
     // start_light_sensor();
     // start_rtc();
     // start_sd_card();
-    start_indicator();
+    // start_indicator();
     start_wifi();
     start_server();
     // start_button();
 
-    flash(5);
+    // flash(5);
 }
 
 void loop() {
@@ -384,10 +385,12 @@ void start_wifi() {
 
     if (connected) {
         Log.Info("WiFi Connected!\nIP address: %s", WiFi.localIP().toString().c_str());
-        // timer.setInterval(5000, upload_data);
+        if (connect_timer_id != -1) {
+            timer.deleteTimer(connect_timer_id);
+        }
 
     } else {
-        timer.setTimeout(WIFI_RECONNECT_INTERVAL, start_wifi);
+        connect_timer_id = timer.setTimeout(WIFI_RECONNECT_INTERVAL, start_wifi);
     }
 }
 
@@ -865,7 +868,8 @@ String generate_last_blobs_table() {
     char temp[10];
     String output =
         "<hr><table style=\"width:80%\"><tr><th>Track id</th><th>Tracked frames</th><th>Max blob "
-        "size</th><th>Travel</th><th>Width</th><th>Height</th><th>Temperature</th><th>A diff</th><th>P diff</th><th>AR "
+        "size</th><th>Travel</th><th>Width</th><th>Height</th><th>Temperature</th><th>Diff max</th><th>A "
+        "diff</th><th>P diff</th><th>AR "
         "diff</th><th>D diff</th><th>T diff</th></tr>";
 
     for (int i = 0; i < TRACKED_BLOB_BUFFER_SIZE; i++) {
@@ -884,6 +888,9 @@ String generate_last_blobs_table() {
         output += last_blobs[i].max_height;
         output += "</td><td>";
         dtostrf(last_blobs[i]._blob.average_temperature, 4, 2, temp);
+        output += temp;
+        output += "</td><td>";
+        dtostrf(last_blobs[i].max_difference, 4, 2, temp);
         output += temp;
         output += "</td><td>";
         dtostrf(last_blobs[i].average_area_difference, 4, 2, temp);
