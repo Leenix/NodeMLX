@@ -33,6 +33,8 @@ const bool INVERT_TRAVEL_DIRECTION = false;
 const int NUM_DIRECTION_CATEGORIES = 5;
 enum directions { LEFT = 0, RIGHT = 1, UP = 2, DOWN = 3, NO_DIRECTION = 4 };
 
+const int DEFAULT_ADJACENCY_FUZZ = 1;
+
 typedef void (*event_callback)(void); /**< Callback function structure - must have no parameters. */
 typedef void (*tracked_callback)(TrackedBlob blob);
 

@@ -7,7 +7,7 @@
 #include "WProgram.h"
 #endif
 
-const static char* PIXEL_VERSION = "20170606";
+const static char* PIXEL_VERSION = "20170613";
 
 class Pixel {
    public:
@@ -19,6 +19,8 @@ class Pixel {
     int get_x();
     int get_y();
     float get_temperature();
+
+    static int adjacency_fuzz;
 
    private:
     int _x;

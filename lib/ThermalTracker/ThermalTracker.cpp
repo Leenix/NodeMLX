@@ -22,6 +22,8 @@ ThermalTracker::ThermalTracker() {
     TrackedBlob::aspect_ratio_penalty = DEFAULT_ASPECT_RATIO_PENALTY;
     TrackedBlob::direction_penalty = DEFAULT_DIRECTION_PENALTY;
     TrackedBlob::temperature_penalty = DEFAULT_TEMPERATURE_PENALTY;
+
+    Pixel::adjacency_fuzz = DEFAULT_ADJACENCY_FUZZ;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
