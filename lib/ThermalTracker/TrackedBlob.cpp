@@ -329,10 +329,10 @@ float TrackedBlob::calculate_direction_difference(Blob other_blob) {
     float difference = 0;
 
     // Establish current direction
-    int latest_direction = predicted_position[X] - _blob.centroid[X];
+    float latest_direction = _blob.centroid[X] - other_blob.centroid[X];
 
     // Check if that direction matches the overall travel of the blob
-    if (!is_touching_side() && times_updated > 1 && ((latest_direction >= 0) != (travel >= 0))) {
+    if (!is_touching_side() && times_updated >= 1 && ((latest_direction >= 0.0) != (travel[X] >= 0))) {
         difference += direction_penalty;
     }
 
