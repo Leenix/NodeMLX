@@ -12,6 +12,8 @@ float TrackedBlob::area_penalty = 0;
 float TrackedBlob::aspect_ratio_penalty = 0;
 float TrackedBlob::temperature_penalty = 0;
 float TrackedBlob::direction_penalty = 0;
+float TrackedBlob::dead_frame_penalty = 0;
+
 int TrackedBlob::frame_width = 16;
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -50,11 +52,13 @@ void TrackedBlob::clear() {
     average_difference = 0;
     max_width = 0;
     max_height = 0;
+    num_dead_frames = 0;
     average_position_difference = 0;
     average_aspect_ratio_difference = 0;
     average_area_difference = 0;
     average_direction_difference = 0;
     average_temperature_difference = 0;
+    max_num_dead_frames = 0;
 
     reset_updated_status();
 }
@@ -105,6 +109,10 @@ void TrackedBlob::update_blob(Blob blob) {
     update_geometry(blob);
 
     has_updated = true;
+    if (num_dead_frames > max_num_dead_frames) {
+        max_num_dead_frames = num_dead_frames;
+    }
+    num_dead_frames = 0;
     times_updated++;
 }
 
@@ -254,6 +262,7 @@ float TrackedBlob::get_difference(Blob other_blob) {
     aspect_ratio_difference = calculate_aspect_ratio_difference(other_blob);
     temperature_difference = calculate_temperature_difference(other_blob);
     direction_difference = calculate_direction_difference(other_blob);
+    dead_frame_difference = calculate_dead_frame_difference();
 
     // Soften the difference if the blob is touching the sides of the frame
     // Blobs close to the centre do not get much leeway
@@ -329,10 +338,10 @@ float TrackedBlob::calculate_direction_difference(Blob other_blob) {
     float difference = 0;
 
     // Establish current direction
-    float latest_direction = _blob.centroid[X] - other_blob.centroid[X];
+    int latest_direction = predicted_position[X] - _blob.centroid[X];
 
     // Check if that direction matches the overall travel of the blob
-    if (!is_touching_side() && times_updated >= 1 && ((latest_direction >= 0.0) != (travel[X] >= 0))) {
+    if (!is_touching_side() && times_updated > 1 && (latest_direction >= 0) != (travel >= 0)) {
         difference += direction_penalty;
     }
 
@@ -353,4 +362,19 @@ bool TrackedBlob::is_touching_side() {
     }
 
     return is_touching;
+}
+
+float TrackedBlob::calculate_dead_frame_difference() {
+    /**
+    * Calculate the penalty for dead frames.
+    * A dead frame is where the blob is no longer visible or recognised in the frame.
+    * The purpose behind keeping dead frames is that blobs may 'disappear' for a frame or two while an object moves
+    * through the frame.
+    * The more frames that the blob has been 'dead' for, the higher the total difference.
+    * The penalty for this difference should be set high to avoid new blobs being mistaken for old dead frames.
+    *
+    * @return The penalty as a result of the number of dead frames the blob has
+    */
+
+    return num_dead_frames * dead_frame_penalty;
 }

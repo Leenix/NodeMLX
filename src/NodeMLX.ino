@@ -21,8 +21,7 @@
 ////////////////////////////////////////////////////////////////////////////////
 // Versioning
 const char* DEVICE_NAME = "NodeMLX";
-const char* THERMAL_SENSOR_NAME = "therm_60deg";
-const char* NODE_MLX_VERSION = "20170611";
+const char* NODE_MLX_VERSION = "20170606";
 
 // Pins
 const byte BUTTON_PIN = D0;
@@ -44,26 +43,11 @@ const long THERMAL_FRAME_INTERVAL = 1000 / REFRESH_RATE;
 const long THERMAL_CHECK_MOVEMENT_INTERVAL = 500;
 const long BACKGROUND_CHECK_INTERVAL = 200;
 const long PRINT_FRAME_INTERVAL = 1000;
-const long UPDATE_AMBIENT_INTERVAL = 1000;
 
 // Thermal flow tracker
 const int TRACKER_NUM_BACKGROUND_FRAMES = 400;
 const int TRACKER_MINIMUM_DISTANCE = 150;
 const int TRACKER_MINIMUM_BLOB_SIZE = 5;
-
-const int MIN_TRAVEL_THRESHOLD = 4;
-const int MIN_BLOB_SIZE = 3;
-const int RUNNING_AVERAGE_SIZE = 800;
-const float MIN_TEMPERATURE_DIFFERENTIAL = 0.5;
-const float ACTIVE_PIXEL_VARIANCE_SCALAR = 3.5;
-
-// Default blob tracking configuration
-const float POSITION_PENALTY = 30.0;
-const float AREA_PENALTY = 50.0;
-const float ASPECT_RATIO_PENALTY = 50.0;
-const float TEMPERATURE_PENALTY = 30.0;
-const float DIRECTION_PENALTY = 50.0;
-const int MAX_DIFFERENCE_THRESHOLD = 800;
 
 // Motion
 const long MOTION_INITIALISATION_TIME = 10000;
@@ -76,8 +60,8 @@ const long LIGHT_CHECK_INTERVAL = 2000;
 const int LIGHT_ON_THRESHOLD = 500;
 
 // WiFi
-const char* WIFI_SSID = "Handy";
-const char* WIFI_PASSWORD = "things11";
+const char* WIFI_SSID = "SecretTunnel";
+const char* WIFI_PASSWORD = "goodPuzzle";
 const int WIFI_DEFAULT_TIMEOUT = 2000;
 const long WIFI_RECONNECT_INTERVAL = 10000;
 
@@ -185,7 +169,6 @@ int rtc_day = 0;
 long movements[NUM_DIRECTION_CATEGORIES];
 float frame[NUM_ROWS][NUM_COLS];
 bool background_building = true;
-float ambient_temperature;
 
 TrackedBlob last_blobs[TRACKED_BLOB_BUFFER_SIZE];
 int tracked_blob_index;
@@ -202,7 +185,6 @@ MDNSResponder mdns;
 ESP8266WebServer server(SERVER_PORT);
 float min_display_temperature = DEFAULT_MIN_DISPLAY_TEMPERATURE;
 float max_display_temperature = DEFAULT_MAX_DISPLAY_TEMPERATURE;
-int connect_timer_id = -1;
 
 ////////////////////////////////////////////////////////////////////////////////
 // Main
@@ -218,16 +200,14 @@ void setup() {
     Wire.begin(D2, D3);
     Log.Info("NodeMLX Starting...");
 
-    // WiFi.softAP(DEVICE_NAME);
-
     start_thermal_flow();
     // start_pir();
     // start_light_sensor();
     // start_rtc();
     // start_sd_card();
     start_indicator();
-    // start_wifi();
-    // start_server();
+    start_wifi();
+    start_server();
     // start_button();
 
     flash(5);
@@ -259,47 +239,26 @@ void start_thermal_flow() {
     timer.setInterval(THERMAL_CHECK_MOVEMENT_INTERVAL, print_new_movements);
     timer.setTimeout(BACKGROUND_CHECK_INTERVAL, check_background);
 
-    tracker.minimum_travel_threshold = MIN_TRAVEL_THRESHOLD;
-    tracker.min_blob_size = MIN_BLOB_SIZE;
-    tracker.running_average_size = RUNNING_AVERAGE_SIZE;
-    tracker.minimum_temperature_differential = MIN_TEMPERATURE_DIFFERENTIAL;
-    tracker.active_pixel_variance_scalar = ACTIVE_PIXEL_VARIANCE_SCALAR;
-    tracker.max_difference_threshold = MAX_DIFFERENCE_THRESHOLD;
-
-    TrackedBlob::position_penalty = POSITION_PENALTY;
-    TrackedBlob::area_penalty = AREA_PENALTY;
-    TrackedBlob::aspect_ratio_penalty = ASPECT_RATIO_PENALTY;
-    TrackedBlob::temperature_penalty = TEMPERATURE_PENALTY;
-    TrackedBlob::direction_penalty = DIRECTION_PENALTY;
-
     tracker.set_tracking_start_callback(handle_tracked_start);
     tracker.set_tracking_end_callback(handle_tracked_end);
     Log.Debug("Thermal flow started.");
-    timer.setInterval(UPDATE_AMBIENT_INTERVAL, update_ambient);
 }
-
-void update_ambient() { ambient_temperature = thermal_flow.get_ambient_temperature(); }
 
 void handle_tracked_start(TrackedBlob blob) {
     Log.Info(
-        "%c{\"id\":\"%s\",\"type\":\"start\",\"t_id\":%d,\"size\":%d,\"start_x\":%d,\"start_y\":%d,\"temp\":%d,"
-        "\"w\":%d,\"h\":%d,\"t_ambient\":%d}%c",
-        PACKET_START, THERMAL_SENSOR_NAME, blob.id, blob.max_size, int(blob.start_pos[X]), int(blob.start_pos[Y]),
-        int(blob._blob.average_temperature * 100), blob.max_width, blob.max_height, int(ambient_temperature * 100),
-        PACKET_STOP);
-
-    flash();
+        "%c{\"id\":\"thermal\",\"type\":\"start\",\"t_id\":%d,\"size\":%d,\"start_x\":%d,\"start_y\":%d,\"temp\":%d,"
+        "\"w\":%d,\"h\":%d}%c",
+        PACKET_START, blob.id, blob.max_size, int(blob.start_pos[X]), int(blob.start_pos[Y]),
+        int(blob._blob.average_temperature * 100), blob.max_width, blob.max_height, PACKET_STOP);
 }
 
 void handle_tracked_end(TrackedBlob blob) {
     Log.Info(
-        "%c{\"id\":\"%s\",\"type\":\"end\",\"t_id\":%d,\"end_x\":%d,\"av_diff\":%d,\"max_diff\":%d,\"time\":%d,"
-        "\"frames\":%d,"
-        "\"size\":%d,\"travel\":%d,\"temp\":%d,\"w\":%d,\"h\":%d,\"t_ambient\":%d}%c",
-        PACKET_START, THERMAL_SENSOR_NAME, blob.id, int(blob._blob.centroid[X]), int(blob.average_difference),
-        int(blob.max_difference), blob.event_duration, blob.times_updated, blob.max_size,
-        int(blob.total_travel[X] * 100), int(blob._blob.average_temperature * 100), blob.max_width, blob.max_height,
-        int(ambient_temperature * 100), PACKET_STOP);
+        "%c{\"id\":\"thermal\",\"type\":\"end\",\"t_id\":%d,\"av_diff\":%d,\"max_diff\":%d,\"time\":%d,\"frames\":%d,"
+        "\"size\":%d,\"travel\":%d,\"temp\":%d,\"w\":%d,\"h\":%d}%c",
+        PACKET_START, blob.id, int(blob.average_difference), int(blob.max_difference), blob.event_duration,
+        blob.times_updated, blob.max_size, int(blob.travel[X] * 100), int(blob._blob.average_temperature * 100),
+        blob.max_width, blob.max_height, PACKET_STOP);
 
     // Keep a list of the most recent blobs if the option is enabled
     if (DISPLAY_TRACKED) {
@@ -425,12 +384,10 @@ void start_wifi() {
 
     if (connected) {
         Log.Info("WiFi Connected!\nIP address: %s", WiFi.localIP().toString().c_str());
-        if (connect_timer_id != -1) {
-            timer.deleteTimer(connect_timer_id);
-        }
+        // timer.setInterval(5000, upload_data);
 
     } else {
-        connect_timer_id = timer.setTimeout(WIFI_RECONNECT_INTERVAL, start_wifi);
+        timer.setTimeout(WIFI_RECONNECT_INTERVAL, start_wifi);
     }
 }
 
@@ -751,6 +708,8 @@ void start_server() {
     /**
     * Start the web server
     */
+
+    WiFi.softAP(DEVICE_NAME);
     mdns.begin(DEVICE_NAME, WiFi.localIP());
 
     server.on("/", handle_root);
@@ -779,8 +738,6 @@ void handle_root() {
 
     String body = "<h1>NodeMLX Thermal Tracker - Ver:";
     body += NODE_MLX_VERSION;
-    body += "; id: ";
-    body += THERMAL_SENSOR_NAME;
     body += "</h1>";
 
     body += "<h2> Basic Info</h2>";
@@ -829,6 +786,10 @@ void handle_server_args() {
             TrackedBlob::direction_penalty = server.arg(i).toFloat();
         } else if (server.argName(i) == "pen_temp") {
             TrackedBlob::temperature_penalty = server.arg(i).toFloat();
+        } else if (server.argName(i) == "max_dead") {
+            TrackedBlob::temperature_penalty = server.arg(i).toInt();
+        } else if (server.argName(i) == "ad_fuzz") {
+            Pixel::adjacency_fuzz = server.arg(i).toInt();
         }
     }
 }
@@ -872,6 +833,15 @@ String generate_tracking_info_table() {
     output += "<td>Active pixel variance scalar</td><td>ap_scalar</td><td>";
     dtostrf(tracker.active_pixel_variance_scalar, 4, 2, temp);
     output += temp;
+    output += "</td></tr>";
+
+    output += "<td>Adjacency fuzz factor</td><td>ad_fuzz</td><td>";
+    dtostrf(tracker.active_pixel_variance_scalar, 4, 2, temp);
+    output += temp;
+    output += "</td></tr>";
+
+    output += "<td>Maximum dead frames</td><td>max_dead</td><td>";
+    output += tracker.max_dead_frames;
     output += "</td></tr></table>";
 
     return output;
@@ -907,12 +877,9 @@ String generate_penalty_table() {
 String generate_last_blobs_table() {
     char temp[10];
     String output =
-        "<style>table, th, td {border: 1px solid black;}</style><hr><table style=\"width:80%\"><tr><th>Track "
-        "id</th><th>Tracked frames</th><th>Max Area</th><th>X start</th><th>X "
-        "end</th><th>Total Travel</th><th>Width</th><th>Height</th><th>Temperature</th><th>Diff "
-        "max</th><th>A "
-        "diff</th><th>P diff</th><th>AR "
-        "diff</th><th>D diff</th><th>T diff</th></tr>";
+        "<hr><table style=\"width:80%\"><tr><th>Track id</th><th>Tracked frames</th><th>Max blob "
+        "size</th><th>Travel</th><th>Width</th><th>Height</th><th>Temperature</th><th>A diff</th><th>P diff</th><th>AR "
+        "diff</th><th>D diff</th><th>T diff</th><th>Num Dead</tr>";
 
     for (int i = 0; i < TRACKED_BLOB_BUFFER_SIZE; i++) {
         output += "<tr><td>";
@@ -922,11 +889,7 @@ String generate_last_blobs_table() {
         output += "</td><td>";
         output += last_blobs[i].max_size;
         output += "</td><td>";
-        output += last_blobs[i].start_pos[X];
-        output += "</td><td>";
-        output += last_blobs[i]._blob.centroid[X];
-        output += "</td><td>";
-        dtostrf(last_blobs[i].total_travel[X], 4, 2, temp);
+        dtostrf(last_blobs[i].travel[X], 4, 2, temp);
         output += temp;
         output += "</td><td>";
         output += last_blobs[i].max_width;
@@ -934,9 +897,6 @@ String generate_last_blobs_table() {
         output += last_blobs[i].max_height;
         output += "</td><td>";
         dtostrf(last_blobs[i]._blob.average_temperature, 4, 2, temp);
-        output += temp;
-        output += "</td><td>";
-        dtostrf(last_blobs[i].max_difference, 4, 2, temp);
         output += temp;
         output += "</td><td>";
         dtostrf(last_blobs[i].average_area_difference, 4, 2, temp);
@@ -953,6 +913,8 @@ String generate_last_blobs_table() {
         output += "</td><td>";
         dtostrf(last_blobs[i].average_temperature_difference, 4, 2, temp);
         output += temp;
+        output += "</td><td>";
+        output += last_blobs[i].max_num_dead_frames;
         output += "</td></tr>";
     }
 
@@ -965,7 +927,6 @@ void handle_live() {
     min_display_temperature = 20;
     max_display_temperature = 50;
     String page = generate_live_view(tracker.frame);
-    page += generate_last_blobs_table();
     server.send(200, "text/html", page);
 }
 
@@ -1021,7 +982,6 @@ void handle_active() {
     }
 
     String page = generate_live_view(active);
-    page += generate_last_blobs_table();
     server.send(200, "text/html", page);
 }
 

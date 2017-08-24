@@ -65,6 +65,7 @@ class TrackedBlob {
     float calculate_area_difference(Blob other_blob);
     float calculate_temperature_difference(Blob other_blob);
     float calculate_aspect_ratio_difference(Blob other_blob);
+    float calculate_dead_frame_difference();
 
     /**
     * Calculate the penalty for any changes in the blobs direction of travel
@@ -101,6 +102,7 @@ class TrackedBlob {
     static float aspect_ratio_penalty;
     static float temperature_penalty;
     static float direction_penalty;
+    static float dead_frame_penalty;
     static int frame_width;
 
     float predicted_position[2];
@@ -117,19 +119,23 @@ class TrackedBlob {
     int max_width;
     int max_height;
     unsigned int id;
+    unsigned int num_dead_frames;
 
     float position_difference;
     float direction_difference;
     float temperature_difference;
     float aspect_ratio_difference;
     float area_difference;
+    float dead_frame_difference;
+    float edge_penalty;
 
     float average_position_difference;
     float average_direction_difference;
     float average_temperature_difference;
     float average_aspect_ratio_difference;
     float average_area_difference;
-    float edge_penalty;
+
+    int max_num_dead_frames;
 };
 
 #endif

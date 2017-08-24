@@ -16,6 +16,7 @@ ThermalTracker::ThermalTracker() {
     max_difference_threshold = DEFAULT_MAX_DIFFERENCE_THRESHOLD;
     minimum_temperature_differential = DEFAULT_MIN_TEMPERATURE_DIFFERENTIAL;
     active_pixel_variance_scalar = DEFAULT_ACTIVE_PIXEL_VARIANCE_SCALAR;
+    max_dead_frames = DEFAULT_MAX_DEAD_FRAMES;
 
     TrackedBlob::position_penalty = DEFAULT_POSITION_PENALTY;
     TrackedBlob::area_penalty = DEFAULT_AREA_PENALTY;
@@ -465,7 +466,12 @@ void ThermalTracker::sort_tracked_blobs(TrackedBlob tracked_blobs[]) {
     // Clean up at the end - Remove gaps in the tracked blobs table and process/clear old and un-updated tracked blobs
     int free_index = MAX_BLOBS + 1;
     for (int i = 0; i < MAX_BLOBS; i++) {
-        if (tracked_blobs[i].has_updated) {
+        // If the blob hasn't been updated this frame, it might be dead
+        if (!tracked_blobs[i].has_updated) {
+            tracked_blobs[i].num_dead_frames++;
+        }
+
+        if (tracked_blobs[i].has_updated || tracked_blobs[i].num_dead_frames < max_dead_frames) {
             // Tracked blob has updated
             // Keep it in the list, but move it up if there are gaps
             if (free_index < i) {

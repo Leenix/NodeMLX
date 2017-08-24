@@ -14,17 +14,20 @@ const int MAX_BLOBS = 8;
 // Default configuration
 const int DEFAULT_MIN_TRAVEL_THRESHOLD = 4;
 const int DEFAULT_MIN_BLOB_SIZE = 3;
+const int DEFAULT_MAX_DIFFERENCE_THRESHOLD = 400;
 const int DEFAULT_RUNNING_AVERAGE_SIZE = 800;
 const float DEFAULT_MIN_TEMPERATURE_DIFFERENTIAL = 0.5;
-const float DEFAULT_ACTIVE_PIXEL_VARIANCE_SCALAR = 3.0;
+const float DEFAULT_ACTIVE_PIXEL_VARIANCE_SCALAR = 4;
+const unsigned int DEFAULT_MAX_DEAD_FRAMES = 4;
 
 // Default blob tracking configuration
-const float DEFAULT_POSITION_PENALTY = 30.0;
-const float DEFAULT_AREA_PENALTY = 50.0;
+const float DEFAULT_POSITION_PENALTY = 2.0;
+const float DEFAULT_AREA_PENALTY = 5.0;
 const float DEFAULT_ASPECT_RATIO_PENALTY = 10.0;
-const float DEFAULT_TEMPERATURE_PENALTY = 30.0;
+const float DEFAULT_TEMPERATURE_PENALTY = 10.0;
 const float DEFAULT_DIRECTION_PENALTY = 50.0;
-const int DEFAULT_MAX_DIFFERENCE_THRESHOLD = 800;
+const float DEFAULT_DEAD_FRAME_PENALTY = DEFAULT_MAX_DIFFERENCE_THRESHOLD / DEFAULT_MAX_DEAD_FRAMES;
+const int DEFAULT_ADJACENCY_FUZZ = 1;
 
 const int ADD_TO_BACKGROUND_DELAY = 20;
 const int UNCHANGED_FRAME_DELAY = 50;
@@ -32,8 +35,6 @@ const int UNCHANGED_FRAME_DELAY = 50;
 const bool INVERT_TRAVEL_DIRECTION = false;
 const int NUM_DIRECTION_CATEGORIES = 5;
 enum directions { LEFT = 0, RIGHT = 1, UP = 2, DOWN = 3, NO_DIRECTION = 4 };
-
-const int DEFAULT_ADJACENCY_FUZZ = 1;
 
 typedef void (*event_callback)(void); /**< Callback function structure - must have no parameters. */
 typedef void (*tracked_callback)(TrackedBlob blob);
@@ -295,6 +296,7 @@ class ThermalTracker {
     int max_difference_threshold;
     float minimum_temperature_differential;
     float active_pixel_variance_scalar;
+    int max_dead_frames;
 
     // Runtime variables
     int num_background_frames;
