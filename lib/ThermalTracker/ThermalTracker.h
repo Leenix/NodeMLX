@@ -18,7 +18,7 @@ const int DEFAULT_MAX_DIFFERENCE_THRESHOLD = 400;
 const int DEFAULT_RUNNING_AVERAGE_SIZE = 800;
 const float DEFAULT_MIN_TEMPERATURE_DIFFERENTIAL = 0.5;
 const float DEFAULT_ACTIVE_PIXEL_VARIANCE_SCALAR = 4;
-const unsigned int DEFAULT_MAX_DEAD_FRAMES = 4;
+const unsigned int DEFAULT_MAX_DEAD_FRAMES = 8;
 
 // Default blob tracking configuration
 const float DEFAULT_POSITION_PENALTY = 2.0;

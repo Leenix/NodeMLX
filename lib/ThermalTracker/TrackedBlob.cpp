@@ -225,6 +225,8 @@ void TrackedBlob::copy(TrackedBlob tblob) {
     average_aspect_ratio_difference = tblob.average_aspect_ratio_difference;
     average_direction_difference = tblob.average_direction_difference;
     average_temperature_difference = tblob.average_temperature_difference;
+    max_num_dead_frames = tblob.max_num_dead_frames;
+    num_dead_frames = tblob.num_dead_frames;
 }
 
 float TrackedBlob::get_travel(int axis) {
