@@ -20,7 +20,7 @@
 // Constants
 ////////////////////////////////////////////////////////////////////////////////
 // Versioning
-const char* DEVICE_NAME = "NodeMLX";
+const char* DEVICE_NAME = "thermal60deg";
 const char* NODE_MLX_VERSION = "20170825";
 const bool DEBUG_ENABLED = true;
 
@@ -69,7 +69,7 @@ const int LIGHT_ON_THRESHOLD = 500;
 const char* WIFI_SSID = "Handy";
 const char* WIFI_PASSWORD = "things11";
 const int WIFI_DEFAULT_TIMEOUT = 2000;
-const long WIFI_RECONNECT_INTERVAL = 10000;
+const long WIFI_RECONNECT_INTERVAL = 20000;
 
 // HTTP Uploading
 const char* SERVER_ADDRESS = "www.dweet.io";
@@ -270,17 +270,17 @@ void start_thermal_flow() {
 
 void handle_tracked_start(TrackedBlob blob) {
     Log.Info(
-        "%c{\"id\":\"thermal\",\"type\":\"start\",\"t_id\":%d,\"size\":%d,\"start_x\":%d,\"start_y\":%d,\"temp\":%d,"
+        "%c{\"id\":\"%s\",\"type\":\"start\",\"t_id\":%d,\"size\":%d,\"start_x\":%d,\"start_y\":%d,\"temp\":%d,"
         "\"w\":%d,\"h\":%d}%c",
-        PACKET_START, blob.id, blob.max_size, int(blob.start_pos[X]), int(blob.start_pos[Y]),
+        PACKET_START, DEVICE_NAME, blob.id, blob.max_size, int(blob.start_pos[X]), int(blob.start_pos[Y]),
         int(blob._blob.average_temperature * 100), blob.max_width, blob.max_height, PACKET_END);
 }
 
 void handle_tracked_end(TrackedBlob blob) {
     Log.Info(
-        "%c{\"id\":\"thermal\",\"type\":\"end\",\"t_id\":%d,\"av_diff\":%d,\"max_diff\":%d,\"time\":%d,\"frames\":%d,"
+        "%c{\"id\":\"%s\",\"type\":\"end\",\"t_id\":%d,\"av_diff\":%d,\"max_diff\":%d,\"time\":%d,\"frames\":%d,"
         "\"size\":%d,\"travel\":%d,\"temp\":%d,\"w\":%d,\"h\":%d}%c",
-        PACKET_START, blob.id, int(blob.average_difference), int(blob.max_difference), blob.event_duration,
+        PACKET_START, DEVICE_NAME, blob.id, int(blob.average_difference), int(blob.max_difference), blob.event_duration,
         blob.times_updated, blob.max_size, int(blob.travel[X] * 100), int(blob._blob.average_temperature * 100),
         blob.max_width, blob.max_height, PACKET_END);
 
@@ -424,34 +424,16 @@ void start_wifi() {
     * If everything succeeds, regular uploads will be established
     */
 
-    bool connected = attempt_wifi_connection(WIFI_DEFAULT_TIMEOUT);
-
-    if (connected) {
-        Log.Info("WiFi Connected!\nIP address: %s", WiFi.localIP().toString().c_str());
-        // timer.setInterval(5000, upload_data);
-
-    } else {
-        timer.setTimeout(WIFI_RECONNECT_INTERVAL, start_wifi);
-    }
-}
-
-bool attempt_wifi_connection(long timeout) {
-    /**
-    * Attempt to connect to the preconfigured WiFi network
-    * @param timeout Max amount of time allowed to establish a connection in ms
-    * @return True if WiFi connected successfully
-    */
-    long start_time = millis();
-    Log.Info("Connecting to %s", WIFI_SSID);
-
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-    // Wait for connection before continuing
-    while (WiFi.status() != WL_CONNECTED && (millis() - start_time) < timeout) {
-        delay(200);
+    if (WiFi.status() != WL_CONNECTED) {
+        Log.Info("Connecting to WiFi - \"%s\"", WIFI_SSID);
+        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     }
 
-    return (WiFi.status() == WL_CONNECTED);
+    else {
+        Log.Info("Connected to WiFi - \"%s\": %s", WIFI_SSID, WiFi.localIP().toString().c_str());
+    }
+
+    timer.setTimeout(WIFI_RECONNECT_INTERVAL, start_wifi);
 }
 
 void upload_data() {
@@ -802,6 +784,8 @@ void handle_root() {
     body += COMPILE_DATE;
     body += " ";
     body += COMPILE_TIME;
+    body += " - ";
+    body += DEVICE_NAME;
     body += "</h2><hr>";
 
     body += "<h2> Basic Info</h2>";
