@@ -21,7 +21,7 @@
 ////////////////////////////////////////////////////////////////////////////////
 // Versioning
 const char* DEVICE_NAME = "NodeMLX";
-const char* NODE_MLX_VERSION = "20170606";
+const char* NODE_MLX_VERSION = "20170825";
 
 // Pins
 const byte BUTTON_PIN = D0;

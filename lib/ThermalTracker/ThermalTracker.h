@@ -5,7 +5,7 @@
 #include "Pixel.h"
 #include "TrackedBlob.h"
 
-const static char* TRACKER_VERSION = "20170606";
+const static char* TRACKER_VERSION = "20170825";
 
 const int FRAME_WIDTH = 16;
 const int FRAME_HEIGHT = 4;
