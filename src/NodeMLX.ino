@@ -20,8 +20,8 @@
 // Constants
 ////////////////////////////////////////////////////////////////////////////////
 // Versioning
-const char* DEVICE_NAME = "thermal60deg";
-const char* NODE_MLX_VERSION = "20170825";
+const char* DEVICE_NAME = "thermal40deg";
+const char* NODE_MLX_VERSION = "20170828";
 const bool DEBUG_ENABLED = true;
 
 const char COMPILE_DATE[12] = __DATE__;
@@ -69,7 +69,7 @@ const int LIGHT_ON_THRESHOLD = 500;
 const char* WIFI_SSID = "Handy";
 const char* WIFI_PASSWORD = "things11";
 const int WIFI_DEFAULT_TIMEOUT = 2000;
-const long WIFI_RECONNECT_INTERVAL = 20000;
+const long WIFI_RECONNECT_INTERVAL = 15000;
 
 // HTTP Uploading
 const char* SERVER_ADDRESS = "www.dweet.io";
@@ -279,10 +279,10 @@ void handle_tracked_start(TrackedBlob blob) {
 void handle_tracked_end(TrackedBlob blob) {
     Log.Info(
         "%c{\"id\":\"%s\",\"type\":\"end\",\"t_id\":%d,\"av_diff\":%d,\"max_diff\":%d,\"time\":%d,\"frames\":%d,"
-        "\"size\":%d,\"travel\":%d,\"temp\":%d,\"w\":%d,\"h\":%d}%c",
+        "\"size\":%d,\"travel\":%d,\"temp\":%d,\"w\":%d,\"h\":%d,\"dead\":%d}%c",
         PACKET_START, DEVICE_NAME, blob.id, int(blob.average_difference), int(blob.max_difference), blob.event_duration,
         blob.times_updated, blob.max_size, int(blob.travel[X] * 100), int(blob._blob.average_temperature * 100),
-        blob.max_width, blob.max_height, PACKET_END);
+        blob.max_width, blob.max_height, blob.max_num_dead_frames, PACKET_END);
 
     // Keep a list of the most recent blobs if the option is enabled
     if (DEBUG_ENABLED) {
