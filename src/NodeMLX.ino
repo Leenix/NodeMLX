@@ -20,7 +20,7 @@
 // Constants
 ////////////////////////////////////////////////////////////////////////////////
 // Versioning
-const char* DEVICE_NAME = "thermal40deg";
+const char* DEVICE_NAME = "thermal60deg";
 const char* NODE_MLX_VERSION = "20170828";
 const bool DEBUG_ENABLED = true;
 
@@ -270,19 +270,23 @@ void start_thermal_flow() {
 
 void handle_tracked_start(TrackedBlob blob) {
     Log.Info(
-        "%c{\"id\":\"%s\",\"type\":\"start\",\"t_id\":%d,\"size\":%d,\"start_x\":%d,\"start_y\":%d,\"temp\":%d,"
+        "%c{\"id\":\"%s\",\"type\":\"start\",\"t_ambient\":%d,\"t_id\":%d,\"size\":%d,\"start_x\":%d,\"start_y\":%d,"
+        "\"temp\":%d,"
         "\"w\":%d,\"h\":%d}%c",
-        PACKET_START, DEVICE_NAME, blob.id, blob.max_size, int(blob.start_pos[X]), int(blob.start_pos[Y]),
-        int(blob._blob.average_temperature * 100), blob.max_width, blob.max_height, PACKET_END);
+        PACKET_START, DEVICE_NAME, int(tracker.get_average_frame_temperature() * 100), blob.id, blob.max_size,
+        int(blob.start_pos[X]), int(blob.start_pos[Y]), int(blob._blob.average_temperature * 100), blob.max_width,
+        blob.max_height, PACKET_END);
 }
 
 void handle_tracked_end(TrackedBlob blob) {
     Log.Info(
-        "%c{\"id\":\"%s\",\"type\":\"end\",\"t_id\":%d,\"av_diff\":%d,\"max_diff\":%d,\"time\":%d,\"frames\":%d,"
+        "%c{\"id\":\"%s\",\"type\":\"end\",\"t_ambient\":%d, "
+        "\"t_id\":%d,\"av_diff\":%d,\"max_diff\":%d,\"time\":%d,\"frames\":%d,"
         "\"size\":%d,\"travel\":%d,\"temp\":%d,\"w\":%d,\"h\":%d,\"dead\":%d}%c",
-        PACKET_START, DEVICE_NAME, blob.id, int(blob.average_difference), int(blob.max_difference), blob.event_duration,
-        blob.times_updated, blob.max_size, int(blob.travel[X] * 100), int(blob._blob.average_temperature * 100),
-        blob.max_width, blob.max_height, blob.max_num_dead_frames, PACKET_END);
+        PACKET_START, DEVICE_NAME, int(tracker.get_average_frame_temperature() * 100), blob.id,
+        int(blob.average_difference), int(blob.max_difference), blob.event_duration, blob.times_updated, blob.max_size,
+        int(blob.travel[X] * 100), int(blob._blob.average_temperature * 100), blob.max_width, blob.max_height,
+        blob.max_num_dead_frames, PACKET_END);
 
     // Keep a list of the most recent blobs if the option is enabled
     if (DEBUG_ENABLED) {
